@@ -1,3 +1,5 @@
+use rand::prelude::SliceRandom;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Suit {
     Spades,
@@ -66,11 +68,12 @@ impl Card {
     }
 }
 
-mod utils {
-    use super::{Card, Rank, Suit};
-    use rand::prelude::SliceRandom;
+struct Deck {
+    cards: Vec<Card>,
+}
 
-    pub fn create_deck() -> Vec<Card> {
+impl Deck {
+    fn new_shuffled() -> Self {
         let mut deck: Vec<Card> = Vec::new();
 
         for &suit in &[Suit::Spades, Suit::Clubs, Suit::Diamonds, Suit::Hearts] {
@@ -88,14 +91,31 @@ mod utils {
             }
         }
 
-        deck
+        let mut rng = rand::rng();
+        deck.shuffle(&mut rng);
+
+        Self { cards: deck }
     }
 
-    pub fn hand_value(hand: &Vec<Card>) -> u32 {
+    fn draw(&mut self) -> Option<Card> {
+        self.cards.pop()
+    }
+}
+
+struct Hand {
+    cards: Vec<Card>,
+}
+
+impl Hand {
+    fn new() -> Self {
+        Self { cards: Vec::new() }
+    }
+
+    fn value(&self) -> u32 {
         let mut aces = 0;
         let mut total_value = 0;
 
-        for &card in hand {
+        for &card in &self.cards {
             match card.rank {
                 Rank::Number(value) => {
                     total_value += value;
@@ -119,46 +139,54 @@ mod utils {
         total_value
     }
 
-    pub fn shuffle_deck(deck: &mut Vec<Card>) {
-        let mut rng = rand::rng();
-        deck.shuffle(&mut rng);
+    fn add_card(&mut self, card: Card) {
+        self.cards.push(card);
     }
+
+    fn cards(&self) -> &[Card] {
+        &self.cards
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum GameOutcome {
+    PlayerBusted,
+    DealerBusted,
+    PlayerWins,
+    DealerWins,
+    Tie,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum GameState {
     WaitingPlayerChoice,
-    PlayerBusted,
     DealerTurn,
-    DealerBusted,
-    PlayerWins,
-    DealerWins,
-    Tie
+    Over(GameOutcome),
 }
 
 pub struct Blackjack {
-    deck: Vec<Card>,
-    player_cards: Vec<Card>,
-    dealer_cards: Vec<Card>,
+    deck: Deck,
+    player_hand: Hand,
+    dealer_hand: Hand,
     state: GameState,
 }
 
 impl Blackjack {
     pub fn new() -> Self {
-        // Create the shuffled deck
-        let mut deck = utils::create_deck();
-        utils::shuffle_deck(&mut deck);
+        let mut deck = Deck::new_shuffled();
+        let mut player_hand = Hand::new();
+        let mut dealer_hand = Hand::new();
 
-        // Deal the player cards
-        let player_cards = vec![deck.pop().unwrap(), deck.pop().unwrap()];
-
-        // Deal the dealer cards
-        let dealer_cards = vec![deck.pop().unwrap(), deck.pop().unwrap()];
+        // Deal initial cards
+        player_hand.add_card(deck.draw().unwrap());
+        player_hand.add_card(deck.draw().unwrap());
+        dealer_hand.add_card(deck.draw().unwrap());
+        dealer_hand.add_card(deck.draw().unwrap());
 
         Self {
             deck,
-            player_cards,
-            dealer_cards,
+            player_hand,
+            dealer_hand,
             state: GameState::WaitingPlayerChoice,
         }
     }
@@ -172,56 +200,56 @@ impl Blackjack {
     }
 
     pub fn dealer_cards(&self) -> &[Card] {
-        &self.dealer_cards
+        self.dealer_hand.cards()
     }
 
     pub fn player_cards(&self) -> &[Card] {
-        &self.player_cards
+        self.player_hand.cards()
     }
 
     pub fn player_hand_value(&self) -> u32 {
-        utils::hand_value(&self.player_cards)
+        self.player_hand.value()
     }
 
     pub fn dealer_hand_value(&self) -> u32 {
-        utils::hand_value(&self.dealer_cards)
+        self.dealer_hand.value()
     }
 
-    fn deal_player_card(&mut self) -> Card {
-        let card = self.deck.pop().unwrap();
-        self.player_cards.push(card);
-        
-        card.clone()
+    fn deal_player_card(&mut self) -> Option<Card> {
+        let card = self.deck.draw()?;
+        self.player_hand.add_card(card);
+        Some(card.clone())
     }
 
     pub fn deal_dealer_cards(&mut self) {
-        while self.dealer_hand_value() < 17 {
-            let card = self.deck.pop().unwrap();
-            self.dealer_cards.push(card);
-        } 
+        while self.dealer_hand.value() < 17 {
+            if let Some(card) = self.deck.draw() {
+                self.dealer_hand.add_card(card);
+            }
+        }
 
         let dealer_hand_value = self.dealer_hand_value();
         let player_hand_value = self.player_hand_value();
-        
+
         if dealer_hand_value > 21 {
-            self.set_state(GameState::DealerBusted);
+            self.set_state(GameState::Over(GameOutcome::DealerBusted));
         } else if player_hand_value > dealer_hand_value {
-            self.set_state(GameState::PlayerWins);
+            self.set_state(GameState::Over(GameOutcome::PlayerWins));
         } else if player_hand_value < dealer_hand_value {
-            self.set_state(GameState::DealerWins);
+            self.set_state(GameState::Over(GameOutcome::DealerWins));
         } else {
-            self.set_state(GameState::Tie);
+            self.set_state(GameState::Over(GameOutcome::Tie));
         }
     }
 
-    pub fn hit(&mut self) -> Card {
-        let card = self.deal_player_card();
+    pub fn hit(&mut self) -> Option<Card> {
+        let card = self.deal_player_card()?;
 
         if self.player_hand_value() > 21 {
-            self.set_state(GameState::PlayerBusted);
+            self.set_state(GameState::Over(GameOutcome::PlayerBusted));
         }
 
-        card
+        Some(card)
     }
 
     pub fn stand(&mut self) {

@@ -1,6 +1,6 @@
 mod blackjack;
 
-use blackjack::{Blackjack, GameState};
+use blackjack::{Blackjack, GameOutcome, GameState};
 use std::io::{self, Write};
 
 struct BlackjackCli {
@@ -30,7 +30,10 @@ impl BlackjackCli {
         for &card in &self.blackjack.dealer_cards()[..num_cards] {
             print!("{} ", card.repr());
         }
-        println!("\nDealer hand value: {}", self.blackjack.dealer_hand_value());
+        println!(
+            "\nDealer hand value: {}",
+            self.blackjack.dealer_hand_value()
+        );
     }
 
     fn run(&mut self) -> io::Result<()> {
@@ -52,20 +55,17 @@ impl BlackjackCli {
                     let choice = input.trim().to_lowercase();
                     match choice.as_str() {
                         "h" => {
-                            let card = self.blackjack.hit();
-                            println!("You got a {}", card.repr());
+                            // let card = self.blackjack.hit();
+                            // println!("You got a {}", card.repr());
+                            if let Some(card) = self.blackjack.hit() {
+                                println!("You got a {}", card.repr());
+                            }
                         }
                         "s" => {
                             self.blackjack.stand();
                         }
                         _ => {}
                     }
-                }
-
-                GameState::PlayerBusted => {
-                    self.show_cards();
-                    println!("You busted! Game over :(");
-                    break;
                 }
 
                 GameState::DealerTurn => {
@@ -85,23 +85,29 @@ impl BlackjackCli {
                     }
                 }
 
-                GameState::DealerBusted => {
-                    println!("Dealer busted, YOU WIN!!");
-                    break;
-                }
+                GameState::Over(outcome) => {
+                    match outcome {
+                        GameOutcome::PlayerBusted => {
+                            self.show_cards();
+                            println!("You busted! Game over :(");
+                        }
 
-                GameState::PlayerWins => {
-                    println!("YOU WIN!!");
-                    break;
-                }
+                        GameOutcome::DealerBusted => {
+                            println!("Dealer busted, YOU WIN!!");
+                        }
 
-                GameState::DealerWins => {
-                    println!("The dealer beat you :( Told ya the house always wins");
-                    break;
-                }
+                        GameOutcome::PlayerWins => {
+                            println!("YOU WIN!!");
+                        }
 
-                GameState::Tie => {
-                    println!("It's a tie! At least you get your money back.");
+                        GameOutcome::DealerWins => {
+                            println!("The dealer beat you :( Told ya the house always wins");
+                        }
+
+                        GameOutcome::Tie => {
+                            println!("It's a tie! At least you get your money back.");
+                        }
+                    }
                     break;
                 }
             }
