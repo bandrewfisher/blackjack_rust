@@ -1,13 +1,19 @@
 mod blackjack;
-mod blackjack_cli;
+mod blackjack_gui;
 
-use blackjack_cli::{BlackjackCli};
-use std::io;
+use macroquad::prelude::*;
+use blackjack_gui::BlackjackGui;
 
 
-fn main() -> io::Result<()> {
-    let mut blackjack = BlackjackCli::new();
-    blackjack.run()?;
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Blackjack".to_owned(),
+        ..Default::default()
+    }
+}
 
-    Ok(())
+#[macroquad::main(window_conf)]
+async fn main() {
+    let gui = BlackjackGui::new();
+    gui.run().await;
 }

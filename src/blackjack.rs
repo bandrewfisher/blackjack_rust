@@ -1,4 +1,4 @@
-use rand::prelude::SliceRandom;
+use macroquad::rand::gen_range;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Suit {
@@ -68,6 +68,15 @@ impl Card {
     }
 }
 
+fn shuffle<T>(vec: &mut Vec<T>) {
+    let len = vec.len();
+
+    for i in (1..len).rev() {
+        let j = gen_range(0, i);
+        vec.swap(i, j);
+    }
+}
+
 struct Deck {
     cards: Vec<Card>,
 }
@@ -91,9 +100,7 @@ impl Deck {
             }
         }
 
-        let mut rng = rand::rng();
-        deck.shuffle(&mut rng);
-
+        shuffle(&mut deck);
         Self { cards: deck }
     }
 
