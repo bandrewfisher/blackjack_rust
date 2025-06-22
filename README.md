@@ -1,9 +1,6 @@
-# Rust Blackjack
+# Blackjack
 
-Basic blackjack implemented in Rust.
-
-## Usage
-
-```
-cargo run
-```
+## Credits
+- Director: Brett Fisher
+- Programmer: Brett Fisher
+- All art comes from https://ivoryred.itch.io/pixel-poker-cards

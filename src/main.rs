@@ -1,5 +1,6 @@
 mod blackjack;
 mod blackjack_gui;
+mod sheet_sprite;
 
 use macroquad::prelude::*;
 use blackjack_gui::BlackjackGui;
@@ -14,6 +15,6 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let gui = BlackjackGui::new();
+    let mut gui = BlackjackGui::new().await;
     gui.run().await;
 }
