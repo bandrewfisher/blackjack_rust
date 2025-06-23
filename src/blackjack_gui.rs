@@ -1,25 +1,12 @@
 use crate::blackjack::Blackjack;
 use crate::sheet_sprite::SheetSprite;
 use std::rc::Rc;
+// use std::cell::RefCell;
 
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
 const SCREEN_PADDING: f32 = 25.0;
-/*
-How will we render deal animations?
-Well, we can have a vector of animations.
-Each animation will have:
-- state: not_started, running, complete
-- start xy, destination xy, cur xy
-- speed
-- sprite
-- texture
-- on_complete callback
-
-After animation is complete (desination == cur),
-then remove it from the vector
-*/
 enum AnimationState {
     NotStarted,
     Running,
@@ -32,13 +19,11 @@ struct Animation {
     end_pos: Vec2,
     cur_pos: Vec2,
     duration_secs: f32, // yes it sounds like sex
-    sprite: Rc<SheetSprite>,
 }
 
 impl Animation {
-    fn new(sprite: Rc<SheetSprite>, start_pos: Vec2, end_pos: Vec2, duration_secs: f32) -> Self {
+    fn new(start_pos: Vec2, end_pos: Vec2, duration_secs: f32) -> Self {
         Self {
-            sprite,
             state: AnimationState::NotStarted,
             start_pos,
             end_pos,
@@ -51,7 +36,7 @@ impl Animation {
         match self.state {
             AnimationState::NotStarted => {
                 // Draw at the initial position
-                self.sprite.draw();
+                // self.sprite.borrow().draw();
                 // Now transfer to running state
                 self.state = AnimationState::Running;
             }
@@ -74,10 +59,10 @@ impl Animation {
                     self.state = AnimationState::Complete;
                 }
 
-                self.sprite.draw();
+                // self.sprite.borrow().draw();
             }
             AnimationState::Complete => {
-                self.sprite.draw();
+                // self.sprite.borrow().draw();
             }
         }
     }
@@ -150,10 +135,19 @@ impl BlackjackGui {
         }
     }
 
-    pub async fn run(&mut self) {
+    pub fn init(&mut self) {
+        // New game will deal player and dealer cards.
+        // Get those cards and add to animation queue.
         let player_cards = self.game.player_cards();
         let dealer_cards = self.game.dealer_cards();
 
+        // todo - add an animation for each card, add to queue.
+        // on complete for each animation should push a new sprite
+        // with final position.
+
+    }
+
+    pub async fn run(&mut self) {
         loop {
             let delta_time = get_frame_time();
 
