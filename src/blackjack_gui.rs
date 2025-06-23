@@ -32,7 +32,7 @@ struct Animation {
     end_pos: Vec2,
     cur_pos: Vec2,
     duration_secs: f32, // yes it sounds like sex
-    sprite: Rc<SheetSprite>
+    sprite: Rc<SheetSprite>,
 }
 
 impl Animation {
@@ -51,12 +51,9 @@ impl Animation {
         match self.state {
             AnimationState::NotStarted => {
                 // Draw at the initial position
-                self.sprite.draw(
-                    self.start_pos.x, self.start_pos.y
-                );
+                self.sprite.draw();
                 // Now transfer to running state
                 self.state = AnimationState::Running;
-                
             }
             AnimationState::Running => {
                 let delta_x = self.end_pos.x - self.start_pos.x;
@@ -68,22 +65,19 @@ impl Animation {
                 // Clamp at the end in case we've gone past
                 let traveled_x = self.cur_pos.x - self.start_pos.x;
                 let traveled_y = self.cur_pos.y - self.start_pos.y;
-                
-                if (traveled_x + traveled_y) > (delta_x + delta_y) { // Manhattan distance
+
+                if (traveled_x + traveled_y) > (delta_x + delta_y) {
+                    // Manhattan distance
                     self.cur_pos.x = self.end_pos.x;
                     self.cur_pos.y = self.end_pos.y;
 
                     self.state = AnimationState::Complete;
                 }
 
-                self.sprite.draw(
-                    self.cur_pos.x, self.cur_pos.y
-                );
+                self.sprite.draw();
             }
             AnimationState::Complete => {
-                self.sprite.draw(
-                    self.cur_pos.x, self.cur_pos.y
-                );
+                self.sprite.draw();
             }
         }
     }
@@ -92,20 +86,33 @@ impl Animation {
 pub struct BlackjackGui {
     game: Blackjack,
     card_sprites: HashMap<String, Rc<SheetSprite>>,
-    deck_sprite: SheetSprite,
     deal_animations: Vec<Animation>,
+
+    sprites: Vec<SheetSprite>,
 }
 
 impl BlackjackGui {
     pub async fn new() -> Self {
+        let mut sprites = Vec::new();
+
         // Load deck texture and sprite
         let deck_width = 49.0;
         let deck_height = 73.0;
         let deck_texture = Rc::new(load_texture("assets/cards/decks_fixed.png").await.unwrap());
         deck_texture.set_filter(FilterMode::Nearest);
 
-        let mut deck_sprite = SheetSprite::new(deck_texture, 4, 0, deck_width, deck_height);
-        deck_sprite.set_scale(2.0);
+        let deck_sprite_scale = 2.0;
+        let mut deck_sprite = SheetSprite::new(
+            deck_texture,
+            4,
+            0,
+            deck_width,
+            deck_height,
+            screen_width() - SCREEN_PADDING - (deck_width * deck_sprite_scale),
+            SCREEN_PADDING,
+        );
+        deck_sprite.set_scale(deck_sprite_scale);
+        sprites.push(deck_sprite);
 
         // Load card texture and sprites
         let cards_texture = Rc::new(load_texture("assets/cards/cards.png").await.unwrap());
@@ -121,8 +128,15 @@ impl BlackjackGui {
             .iter()
             .enumerate()
             {
-                let mut card_sprite =
-                    SheetSprite::new(Rc::clone(&cards_texture), col, row, card_width, card_height);
+                let mut card_sprite = SheetSprite::new(
+                    Rc::clone(&cards_texture),
+                    col,
+                    row,
+                    card_width,
+                    card_height,
+                    0.0,
+                    0.0,
+                );
                 card_sprite.set_scale(2.0);
                 card_sprites.insert(format!("{}{}", rank, suit), Rc::new(card_sprite));
             }
@@ -131,51 +145,27 @@ impl BlackjackGui {
         Self {
             game: Blackjack::new(),
             card_sprites,
-            deck_sprite,
             deal_animations: Vec::new(),
+            sprites
         }
-    }
-
-    fn get_deck_pos(&self) -> Vec2 {
-        vec2(
-            screen_width() - SCREEN_PADDING - self.deck_sprite.width(),
-            SCREEN_PADDING,
-        )
-    }
-
-    /// Show the deck in the top right corner of the screen
-    pub fn render_deck(&self) {
-        let deck_pos = self.get_deck_pos();
-        self.deck_sprite
-            .draw(deck_pos.x, deck_pos.y);
     }
 
     pub async fn run(&mut self) {
-        if let Some(card_sprite) = self.card_sprites.get("KS") {
-            self.deal_animations.push(
-                Animation::new(
-                    Rc::clone(card_sprite),
-                    self.get_deck_pos(),
-                    vec2(
-                        (screen_width() / 2.) - (card_sprite.width() / 2.),
-                        screen_height() - card_sprite.height() -  SCREEN_PADDING,
-                    ),
-                    0.75
-                )
-            );
-        }
+        let player_cards = self.game.player_cards();
+        let dealer_cards = self.game.dealer_cards();
 
-        println!("start {}", self.deal_animations[0].start_pos);
-        println!("end {}", self.deal_animations[0].end_pos);
-
-        
         loop {
             let delta_time = get_frame_time();
 
             clear_background(RED);
 
             // Render deck
-            self.render_deck();
+            // self.render_deck();
+
+            // Render sprites
+            for sprite in &self.sprites {
+                sprite.draw();
+            }
 
             // Render deal animations
             for animation in &mut self.deal_animations {
