@@ -1,110 +1,66 @@
 use crate::blackjack::Blackjack;
-use crate::sheet_sprite::SheetSprite;
+use crate::sheet_sprite::{SheetSprite, SharedSprite};
+use crate::animation::{Animation, AnimationQueue};
 use std::rc::Rc;
-// use std::cell::RefCell;
+use std::cell::RefCell;
 
 use macroquad::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap};
 
 const SCREEN_PADDING: f32 = 25.0;
-enum AnimationState {
-    NotStarted,
-    Running,
-    Complete,
-}
+const SPRITE_SCALE: f32 = 2.0;
 
-struct Animation {
-    state: AnimationState,
-    start_pos: Vec2,
-    end_pos: Vec2,
-    cur_pos: Vec2,
-    duration_secs: f32, // yes it sounds like sex
-}
+const DECK_W: f32 = 49.0;
+const DECK_H: f32 = 73.0;
 
-impl Animation {
-    fn new(start_pos: Vec2, end_pos: Vec2, duration_secs: f32) -> Self {
-        Self {
-            state: AnimationState::NotStarted,
-            start_pos,
-            end_pos,
-            cur_pos: start_pos.clone(),
-            duration_secs,
-        }
-    }
+const CARD_W: f32 = 48.0;
+const CARD_H: f32 = 64.0;
 
-    fn tick(&mut self, delta_time: f32) {
-        match self.state {
-            AnimationState::NotStarted => {
-                // Draw at the initial position
-                // self.sprite.borrow().draw();
-                // Now transfer to running state
-                self.state = AnimationState::Running;
-            }
-            AnimationState::Running => {
-                let delta_x = self.end_pos.x - self.start_pos.x;
-                let delta_y = self.end_pos.y - self.start_pos.y;
-
-                self.cur_pos.x += delta_x * delta_time / self.duration_secs;
-                self.cur_pos.y += delta_y * delta_time / self.duration_secs;
-
-                // Clamp at the end in case we've gone past
-                let traveled_x = self.cur_pos.x - self.start_pos.x;
-                let traveled_y = self.cur_pos.y - self.start_pos.y;
-
-                if (traveled_x + traveled_y) > (delta_x + delta_y) {
-                    // Manhattan distance
-                    self.cur_pos.x = self.end_pos.x;
-                    self.cur_pos.y = self.end_pos.y;
-
-                    self.state = AnimationState::Complete;
-                }
-
-                // self.sprite.borrow().draw();
-            }
-            AnimationState::Complete => {
-                // self.sprite.borrow().draw();
-            }
-        }
-    }
+enum GameState {
+    NewGame,
+    DealingInitialHand
 }
 
 pub struct BlackjackGui {
     game: Blackjack,
-    card_sprites: HashMap<String, Rc<SheetSprite>>,
-    deal_animations: Vec<Animation>,
+    state: GameState,
+    card_sprites: HashMap<String, SharedSprite>,
+    deal_animations: AnimationQueue,
 
-    sprites: Vec<SheetSprite>,
+    sprites: Vec<SharedSprite>,
 }
 
 impl BlackjackGui {
+    fn deck_pos() -> Vec2 {
+        vec2(
+            screen_width() - SCREEN_PADDING - (DECK_W * SPRITE_SCALE),
+            SCREEN_PADDING
+        )
+    }
     pub async fn new() -> Self {
-        let mut sprites = Vec::new();
+        let mut sprites: Vec<SharedSprite> = Vec::new();
 
         // Load deck texture and sprite
-        let deck_width = 49.0;
-        let deck_height = 73.0;
         let deck_texture = Rc::new(load_texture("assets/cards/decks_fixed.png").await.unwrap());
         deck_texture.set_filter(FilterMode::Nearest);
 
-        let deck_sprite_scale = 2.0;
+        let deck_pos = BlackjackGui::deck_pos();
         let mut deck_sprite = SheetSprite::new(
             deck_texture,
             4,
             0,
-            deck_width,
-            deck_height,
-            screen_width() - SCREEN_PADDING - (deck_width * deck_sprite_scale),
-            SCREEN_PADDING,
+            DECK_W,
+            DECK_H,
+            deck_pos
         );
-        deck_sprite.set_scale(deck_sprite_scale);
-        sprites.push(deck_sprite);
+        deck_sprite.set_scale(SPRITE_SCALE);
+        sprites.push(Rc::new(RefCell::new(deck_sprite)));
 
         // Load card texture and sprites
         let cards_texture = Rc::new(load_texture("assets/cards/cards.png").await.unwrap());
         cards_texture.set_filter(FilterMode::Nearest);
 
-        let card_width = 48.0;
-        let card_height = 64.0;
+
         let mut card_sprites = HashMap::new();
         for (row, suit) in ["H", "D", "S", "C"].iter().enumerate() {
             for (col, rank) in [
@@ -117,57 +73,78 @@ impl BlackjackGui {
                     Rc::clone(&cards_texture),
                     col,
                     row,
-                    card_width,
-                    card_height,
-                    0.0,
-                    0.0,
+                    CARD_W,
+                    CARD_H,
+                    vec2(0.0, 0.0)
                 );
                 card_sprite.set_scale(2.0);
-                card_sprites.insert(format!("{}{}", rank, suit), Rc::new(card_sprite));
+                card_sprites.insert(format!("{}{}", rank, suit), Rc::new(RefCell::new(card_sprite)));
             }
         }
 
         Self {
             game: Blackjack::new(),
             card_sprites,
-            deal_animations: Vec::new(),
-            sprites
+            deal_animations: AnimationQueue::new(),
+            sprites,
+            state: GameState::NewGame
         }
     }
 
-    pub fn init(&mut self) {
-        // New game will deal player and dealer cards.
-        // Get those cards and add to animation queue.
-        let player_cards = self.game.player_cards();
-        let dealer_cards = self.game.dealer_cards();
+    fn handle_state(&mut self) {
+        match self.state {
+            GameState::NewGame => {
+                let player_cards = self.game.player_cards();
+                let dealer_cards = self.game.dealer_cards();
 
-        // todo - add an animation for each card, add to queue.
-        // on complete for each animation should push a new sprite
-        // with final position.
+                let deck_pos = BlackjackGui::deck_pos();
+                let pcard1 = self.card_sprites.get(&player_cards[0].repr()).unwrap();
+                let pcard2 = self.card_sprites.get(&player_cards[1].repr()).unwrap();
 
+                // pcard1.borrow_mut().set_pos(BlackjackGui::deck_pos());
+                // pcard2.borrow_mut().set_pos(BlackjackGui::deck_pos());
+
+                self.deal_animations.push(
+                    Animation::new(
+                        Rc::clone(pcard1),
+                        vec2(200.0, 200.0),
+                        1.0
+                    )
+                );
+                self.deal_animations.push(
+                    Animation::new(
+                        Rc::clone(pcard2),
+                        vec2(220.0, 200.0),
+                        1.0
+                    )
+                );
+                self.sprites.push(Rc::clone(pcard1));
+                self.sprites.push(Rc::clone(pcard2));
+                self.state = GameState::DealingInitialHand;
+            }
+            
+            _ => {}
+        }
     }
 
     pub async fn run(&mut self) {
         loop {
             let delta_time = get_frame_time();
 
+            // Handle current game state
+            self.handle_state();
+
+            // Rest of the code handles drawing to the screen
             clear_background(RED);
 
-            // Render deck
-            // self.render_deck();
+            // Render deal animations
+            self.deal_animations.tick(delta_time);
 
             // Render sprites
             for sprite in &self.sprites {
-                sprite.draw();
+                sprite.borrow().draw();
             }
 
-            // Render deal animations
-            for animation in &mut self.deal_animations {
-                animation.tick(delta_time);
-            }
-            // if let Some(animation) = self.deal_animations.get(0) {
-            //     animation.tick(delta_time);
-            // }
             next_frame().await
         }
     }

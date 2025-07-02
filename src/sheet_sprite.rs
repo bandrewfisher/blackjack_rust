@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 use std::rc::Rc;
+use std::cell::RefCell;
 
 pub struct SheetSprite {
     source_rect: Rect,
@@ -8,6 +9,8 @@ pub struct SheetSprite {
     position: Vec2,
 }
 
+pub type SharedSprite = Rc<RefCell<SheetSprite>>;
+
 impl SheetSprite {
     pub fn new(
         texture: Rc<Texture2D>,
@@ -15,8 +18,7 @@ impl SheetSprite {
         row: usize,
         card_width: f32,
         card_height: f32,
-        x: f32,
-        y: f32,
+        position: Vec2
     ) -> Self {
         let source_rect = Rect::new(
             col as f32 * card_width,
@@ -28,12 +30,16 @@ impl SheetSprite {
             source_rect,
             scale: 1.0,
             texture,
-            position: vec2(x, y),
+            position,
         }
     }
 
-    pub fn set_pos(&mut self, x: f32, y: f32) {
-        self.position = vec2(x, y);
+    pub fn get_pos(&self) -> Vec2 {
+        self.position
+    }
+
+    pub fn set_pos(&mut self, pos: Vec2) {
+        self.position = pos;
     }
 
     pub fn width(&self) -> f32 {
