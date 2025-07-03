@@ -53,10 +53,10 @@ impl Animation {
                 self.sprite.borrow_mut().set_pos(cur_pos);
 
                 // Clamp at the end in case we've gone past
-                let traveled_x = cur_pos.x - self.start_pos.x;
-                let traveled_y = cur_pos.y - self.start_pos.y;
+                let traveled_x = (cur_pos.x - self.start_pos.x).abs();
+                let traveled_y = (cur_pos.y - self.start_pos.y).abs();
 
-                if (traveled_x + traveled_y) > (delta_x + delta_y) {
+                if (traveled_x + traveled_y) > (delta_x.abs() + delta_y.abs()) {
                     // Manhattan distance
                     self.sprite.borrow_mut().set_pos(self.end_pos);
                     self.state = AnimationState::Complete;
