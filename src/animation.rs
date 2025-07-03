@@ -1,34 +1,43 @@
-use crate::sheet_sprite::{SharedSprite};
+use crate::sheet_sprite::SharedSprite;
 
-use std::collections::VecDeque;
 use macroquad::prelude::*;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy)]
-enum AnimationState {
+pub enum AnimationState {
     NotStarted,
     Running,
     Complete,
 }
 
-pub struct Animation {
+pub struct Animation<T> {
     state: AnimationState,
     sprite: SharedSprite,
     start_pos: Vec2,
     end_pos: Vec2,
     duration_secs: f32, // yes it sounds like sex
+    metadata: T
 }
 
-impl Animation {
-    pub fn new(sprite: SharedSprite, end_pos: Vec2, duration_secs: f32) -> Self {
+impl<T> Animation<T> {
+    pub fn new(sprite: SharedSprite, end_pos: Vec2, duration_secs: f32, metadata: T) -> Self {
         let start_pos = sprite.borrow().get_pos();
-        println!("start pos {:?}", start_pos);
         Self {
             state: AnimationState::NotStarted,
             sprite,
             start_pos,
             end_pos,
             duration_secs,
+            metadata
         }
+    }
+
+    pub fn sprite(&self) -> &SharedSprite {
+        &self.sprite
+    }
+
+    pub fn metadata(&self) -> &T {
+        &self.metadata
     }
 
     pub fn state(&self) -> AnimationState {
@@ -61,8 +70,6 @@ impl Animation {
                     self.sprite.borrow_mut().set_pos(self.end_pos);
                     self.state = AnimationState::Complete;
                 }
-
-                // self.sprite.borrow().draw();
             }
             AnimationState::Complete => {}
         }
@@ -74,29 +81,33 @@ Holds a set of animations in a queue. After each
 one is complete, pops the first one and begins
 handling the next
 */
-pub struct AnimationQueue {
-    queue: VecDeque<Animation>,
+pub struct AnimationQueue<T> {
+    queue: VecDeque<Animation<T>>,
 }
 
-impl AnimationQueue {
-    pub fn new() -> Self{
+impl<T> AnimationQueue<T> {
+    pub fn new() -> Self {
         Self {
             queue: VecDeque::new(),
         }
     }
 
-    pub fn push(&mut self, animation: Animation) {
+    pub fn push(&mut self, animation: Animation<T>) {
         self.queue.push_back(animation);
     }
 
-    pub fn tick(&mut self, delta_time: f32) {
+    pub fn tick(&mut self, delta_time: f32) -> Option<Animation<T>> {
         if let Some(animation) = self.queue.front_mut() {
             if let AnimationState::Complete = animation.state() {
-                self.queue.pop_front();
+                return self.queue.pop_front();
             } else {
                 animation.tick(delta_time);
             }
-
         }
+        None // Queue is empty
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
     }
 }

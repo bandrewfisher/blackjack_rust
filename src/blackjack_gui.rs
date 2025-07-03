@@ -1,11 +1,11 @@
+use crate::animation::{Animation, AnimationQueue, AnimationState};
 use crate::blackjack::Blackjack;
-use crate::sheet_sprite::{Sprite, SharedSprite};
-use crate::animation::{Animation, AnimationQueue};
-use std::rc::Rc;
+use crate::sheet_sprite::{SharedSprite, Sprite};
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use macroquad::prelude::*;
-use std::collections::{HashMap};
+use std::collections::{HashMap, VecDeque};
 
 const SCREEN_PADDING: f32 = 25.0;
 const SPRITE_SCALE: f32 = 2.0;
@@ -19,36 +19,43 @@ const CARD_H: f32 = 64.0;
 fn deck_pos() -> Vec2 {
     vec2(
         screen_width() - SCREEN_PADDING - (DECK_W * SPRITE_SCALE),
-        SCREEN_PADDING
+        SCREEN_PADDING,
     )
 }
 
 fn player_cards_pos() -> Vec2 {
     vec2(
         (screen_width() / 2.0) - (CARD_W * SPRITE_SCALE / 2.0),
-        screen_height() - SCREEN_PADDING - (CARD_H * SPRITE_SCALE)
+        screen_height() - SCREEN_PADDING - (CARD_H * SPRITE_SCALE),
     )
 }
 
 enum GameState {
     NewGame,
-    DealingInitialHand
+    DealingInitialHand,
+    WaitingPlayerInput,
+}
+
+#[derive(Debug, Clone)]
+struct CardAnimationMetadata {
+    card_repr: String,
+    should_flip: bool,
+    is_dealer_card: bool,
 }
 
 pub struct BlackjackGui {
     game: Blackjack,
     state: GameState,
     card_sprites: HashMap<String, SharedSprite>,
-    deal_animations: AnimationQueue,
+    deal_animations: AnimationQueue<CardAnimationMetadata>,
     sprites: Vec<SharedSprite>,
 
     // Textures
     deck_texture: Rc<Texture2D>,
-    cards_texture: Rc<Texture2D>
+    cards_texture: Rc<Texture2D>,
 }
 
 impl BlackjackGui {
-
     pub async fn new() -> Self {
         let mut sprites: Vec<SharedSprite> = Vec::new();
 
@@ -64,7 +71,7 @@ impl BlackjackGui {
             DECK_W,
             DECK_H,
             deck_pos,
-            SPRITE_SCALE
+            SPRITE_SCALE,
         );
         sprites.push(Rc::new(RefCell::new(deck_sprite)));
 
@@ -87,9 +94,12 @@ impl BlackjackGui {
                     CARD_W,
                     CARD_H,
                     vec2(0.0, 0.0),
-                    SPRITE_SCALE
+                    SPRITE_SCALE,
                 );
-                card_sprites.insert(format!("{}{}", rank, suit), Rc::new(RefCell::new(card_sprite)));
+                card_sprites.insert(
+                    format!("{}{}", rank, suit),
+                    Rc::new(RefCell::new(card_sprite)),
+                );
             }
         }
 
@@ -100,12 +110,24 @@ impl BlackjackGui {
             sprites,
             state: GameState::NewGame,
             deck_texture,
-            cards_texture
+            cards_texture,
         }
     }
 
     fn set_state(&mut self, state: GameState) {
         self.state = state;
+    }
+
+    fn create_facedown_card_sprite(&self, position: Vec2) -> SharedSprite {
+        Rc::new(RefCell::new(Sprite::new(
+            Rc::clone(&self.cards_texture),
+            4,
+            4,
+            CARD_W,
+            CARD_H,
+            position,
+            SPRITE_SCALE,
+        )))
     }
 
     fn create_card_sprite(&self, card_repr: &str, position: Vec2) -> Option<SharedSprite> {
@@ -118,12 +140,16 @@ impl BlackjackGui {
                 CARD_W,
                 CARD_H,
                 position,
-                SPRITE_SCALE
+                SPRITE_SCALE,
             );
 
             return Some(Rc::new(RefCell::new(new_sprite)));
         }
         None
+    }
+
+    fn remove_sprite(&mut self, sprite: &SharedSprite) {
+        self.sprites.retain(|s| !Rc::ptr_eq(s, sprite))
     }
 
     fn handle_state(&mut self) {
@@ -135,30 +161,74 @@ impl BlackjackGui {
                 let deck_pos = deck_pos();
                 let player_cards_pos = player_cards_pos();
 
-                let pcard1 = self.create_card_sprite(&player_cards[0].repr(), deck_pos).unwrap();
-                let pcard2 = self.create_card_sprite(&player_cards[1].repr(), deck_pos).unwrap();
+                let pcard1_repr = &player_cards[0].repr();
+                let pcard2_repr = &player_cards[1].repr();
+                // let pcard1 = self.create_card_sprite(&pcard1_repr, deck_pos).unwrap();
+                // let pcard2 = self.create_card_sprite(&pcard2_repr, deck_pos).unwrap();
 
-                self.deal_animations.push(
-                    Animation::new(
-                        Rc::clone(&pcard1),
-                        player_cards_pos,
-                        1.0
-                    )
-                );
-                self.deal_animations.push(
-                    Animation::new(
-                        Rc::clone(&pcard2),
-                        vec2(player_cards_pos.x + (CARD_W * SPRITE_SCALE / 3.0), player_cards_pos.y),
-                        1.0
-                    )
-                );
-                self.sprites.push(pcard1);
+                let pcard1 = self.create_facedown_card_sprite(deck_pos);
+                let pcard2 = self.create_facedown_card_sprite(deck_pos);
+
+                self.deal_animations.push(Animation::new(
+                    Rc::clone(&pcard1),
+                    player_cards_pos,
+                    0.7,
+                    CardAnimationMetadata {
+                        is_dealer_card: false,
+                        card_repr: String::from(pcard1_repr),
+                        should_flip: true,
+                    },
+                ));
+                self.deal_animations.push(Animation::new(
+                    Rc::clone(&pcard2),
+                    vec2(
+                        player_cards_pos.x + (CARD_W * SPRITE_SCALE / 3.0),
+                        player_cards_pos.y,
+                    ),
+                    0.7,
+                    CardAnimationMetadata {
+                        is_dealer_card: false,
+                        card_repr: String::from(pcard2_repr),
+                        should_flip: true,
+                    },
+                ));
+
                 self.sprites.push(pcard2);
+                self.sprites.push(pcard1);
 
                 self.set_state(GameState::DealingInitialHand);
             }
 
-            GameState::DealingInitialHand => {}
+            GameState::DealingInitialHand => {
+                // Done dealing the cards
+                if self.deal_animations.len() < 1 {
+                    self.set_state(GameState::WaitingPlayerInput);
+                }
+            }
+
+            GameState::WaitingPlayerInput => {}
+        }
+    }
+
+    /*
+    Handle each deal animation. We'll deal the card at the front of the
+    queue. After it's reached its final destination, we'll flip it over
+    and start handling the next deal animation.
+    */
+    pub fn handle_deal_animations(&mut self, delta_time: f32) {
+        // We get an animation back if ticking yields a completed animation
+        if let Some(animation) = self.deal_animations.tick(delta_time) {
+            println!("animation metadata: {:?}", animation.metadata());
+            let sprite = animation.sprite();
+            let metadata = animation.metadata();
+
+            self.remove_sprite(sprite);
+
+            if let Some(card_sprite) =
+                self.create_card_sprite(&metadata.card_repr, sprite.borrow().get_pos())
+            {
+                self.sprites.push(card_sprite);
+            }
         }
     }
 
@@ -173,7 +243,7 @@ impl BlackjackGui {
             clear_background(RED);
 
             // Handle deal animations
-            self.deal_animations.tick(delta_time);
+            self.handle_deal_animations(delta_time);
 
             // Render sprites
             for sprite in &self.sprites {
