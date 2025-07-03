@@ -1,4 +1,5 @@
-use macroquad::rand::gen_range;
+use macroquad::rand::{gen_range, srand};
+use macroquad::miniquad::date;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Suit {
@@ -69,6 +70,9 @@ impl Card {
 }
 
 fn shuffle<T>(vec: &mut Vec<T>) {
+    let seed = date::now() as u64;
+    srand(seed);
+
     let len = vec.len();
 
     for i in (1..len).rev() {
