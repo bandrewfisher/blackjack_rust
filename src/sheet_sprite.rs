@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 use std::rc::Rc;
 use std::cell::RefCell;
 
-pub struct SheetSprite {
+pub struct Sprite {
     source_rect: Rect,
     scale: f32,
     texture: Rc<Texture2D>,
@@ -11,9 +11,9 @@ pub struct SheetSprite {
     row: usize
 }
 
-pub type SharedSprite = Rc<RefCell<SheetSprite>>;
+pub type SharedSprite = Rc<RefCell<Sprite>>;
 
-impl SheetSprite {
+impl Sprite {
     pub fn new(
         texture: Rc<Texture2D>,
         col: usize,

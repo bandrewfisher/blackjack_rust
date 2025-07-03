@@ -1,5 +1,5 @@
 use crate::blackjack::Blackjack;
-use crate::sheet_sprite::{SheetSprite, SharedSprite};
+use crate::sheet_sprite::{Sprite, SharedSprite};
 use crate::animation::{Animation, AnimationQueue};
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -57,7 +57,7 @@ impl BlackjackGui {
         deck_texture.set_filter(FilterMode::Nearest);
 
         let deck_pos = deck_pos();
-        let mut deck_sprite = SheetSprite::new(
+        let mut deck_sprite = Sprite::new(
             Rc::clone(&deck_texture),
             4,
             0,
@@ -80,7 +80,7 @@ impl BlackjackGui {
             .iter()
             .enumerate()
             {
-                let card_sprite = SheetSprite::new(
+                let card_sprite = Sprite::new(
                     Rc::clone(&cards_texture),
                     col,
                     row,
@@ -111,7 +111,7 @@ impl BlackjackGui {
     fn create_card_sprite(&self, card_repr: &str, position: Vec2) -> Option<SharedSprite> {
         if let Some(card_sprite_ref) = self.card_sprites.get(card_repr) {
             let card_sprite = card_sprite_ref.borrow();
-            let mut new_sprite = SheetSprite::new(
+            let mut new_sprite = Sprite::new(
                 Rc::clone(&self.cards_texture),
                 card_sprite.col(),
                 card_sprite.row(),

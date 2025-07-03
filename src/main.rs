@@ -10,6 +10,7 @@ use blackjack_gui::BlackjackGui;
 fn window_conf() -> Conf {
     Conf {
         window_title: "Blackjack".to_owned(),
+        window_resizable: false,
         ..Default::default()
     }
 }
