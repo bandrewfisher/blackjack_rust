@@ -11,29 +11,36 @@ use std::collections::{HashMap, VecDeque};
 const SCREEN_PADDING: f32 = 25.0;
 const SPRITE_SCALE: f32 = 2.0;
 
-const DECK_W: f32 = 49.0;
-const DECK_H: f32 = 73.0;
+const DECK_W_PX: f32 = 49.0;
+const DECK_H_PX: f32 = 73.0;
 
-const CARD_W: f32 = 48.0;
-const CARD_H: f32 = 64.0;
+const DECK_W: f32 = DECK_W_PX * SPRITE_SCALE;
+const DECK_H: f32 = DECK_H_PX * SPRITE_SCALE;
+
+const CARD_W_PX: f32 = 48.0;
+const CARD_H_PX: f32 = 64.0;
+
+const CARD_W: f32 = CARD_W_PX * SPRITE_SCALE;
+const CARD_H: f32 = CARD_H_PX * SPRITE_SCALE;
+
 
 fn deck_pos() -> Vec2 {
     vec2(
-        screen_width() - SCREEN_PADDING - (DECK_W * SPRITE_SCALE),
+        screen_width() - SCREEN_PADDING - DECK_W,
         SCREEN_PADDING,
     )
 }
 
 fn player_cards_pos() -> Vec2 {
     vec2(
-        (screen_width() / 2.0) - (CARD_W * SPRITE_SCALE / 2.0),
-        screen_height() - SCREEN_PADDING - (CARD_H * SPRITE_SCALE),
+        (screen_width() / 2.0) - (CARD_W / 2.0),
+        screen_height() - SCREEN_PADDING - CARD_H,
     )
 }
 
 fn dealer_cards_pos() -> Vec2 {
     vec2(
-        (screen_width() / 2.0) - (CARD_W * SPRITE_SCALE / 2.0),
+        (screen_width() / 2.0) - (CARD_W / 2.0),
         SCREEN_PADDING,
     )
 }
@@ -79,8 +86,8 @@ impl BlackjackGui {
             Rc::clone(&deck_texture),
             4,
             0,
-            DECK_W,
-            DECK_H,
+            DECK_W_PX,
+            DECK_H_PX,
             deck_pos,
             SPRITE_SCALE,
         );
@@ -102,8 +109,8 @@ impl BlackjackGui {
                     Rc::clone(&cards_texture),
                     col,
                     row,
-                    CARD_W,
-                    CARD_H,
+                    CARD_W_PX,
+                    CARD_H_PX,
                     vec2(0.0, 0.0),
                     SPRITE_SCALE,
                 );
@@ -138,8 +145,8 @@ impl BlackjackGui {
             Rc::clone(&self.cards_texture),
             4,
             4,
-            CARD_W,
-            CARD_H,
+            CARD_W_PX,
+            CARD_H_PX,
             position,
             SPRITE_SCALE,
         )))
@@ -152,8 +159,8 @@ impl BlackjackGui {
                 Rc::clone(&self.cards_texture),
                 card_sprite.col(),
                 card_sprite.row(),
-                CARD_W,
-                CARD_H,
+                CARD_W_PX,
+                CARD_H_PX,
                 position,
                 SPRITE_SCALE,
             );
@@ -203,7 +210,7 @@ impl BlackjackGui {
                 self.deal_animations.push(Animation::new(
                     Rc::clone(&pcard2),
                     vec2(
-                        player_cards_pos.x + (CARD_W * SPRITE_SCALE / 3.0),
+                        player_cards_pos.x + (CARD_W / 3.0),
                         player_cards_pos.y,
                     ),
                     0.7,
@@ -228,7 +235,7 @@ impl BlackjackGui {
                 self.deal_animations.push(Animation::new(
                     Rc::clone(&dcard2),
                     vec2(
-                        dealer_cards_pos.x + (CARD_W * SPRITE_SCALE / 3.0),
+                        dealer_cards_pos.x + (CARD_W / 3.0),
                         dealer_cards_pos.y,
                     ),
                     0.7,
@@ -239,10 +246,6 @@ impl BlackjackGui {
                     },
                 ));
 
-                self.sprites.push(pcard1);
-                self.sprites.push(pcard2);
-                self.sprites.push(dcard1);
-                self.sprites.push(dcard2);
 
                 self.set_state(GameState::DealingInitialHand);
             }
@@ -270,7 +273,6 @@ impl BlackjackGui {
             .cur_animation_state()
             .is_some_and(|s| s == AnimationState::NotStarted)
         {
-            println!("starting animation");
             play_sound(
                 &self.card_flip_sound,
                 PlaySoundParams {
@@ -278,6 +280,13 @@ impl BlackjackGui {
                     volume: 0.7,
                 },
             );
+
+            // Add animation sprite to the sprites queue.
+            // We do it here to keep the correct rendering order, so that
+            // each dealt card appears on top of the prior ones.
+            if let Some(animation) = self.deal_animations.cur_animation() {
+                self.sprites.push(Rc::clone(animation.sprite()));
+            }
         }
 
         // We get an animation back if ticking yields a completed animation

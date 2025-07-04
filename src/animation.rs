@@ -103,6 +103,10 @@ impl<T> AnimationQueue<T> {
         None
     }
 
+    pub fn cur_animation(&self) -> Option<&Animation<T>> {
+        self.queue.front()
+    }
+
     pub fn tick(&mut self, delta_time: f32) -> Option<Animation<T>> {
         if let Some(animation) = self.queue.front_mut() {
             if let AnimationState::Complete = animation.state() {
