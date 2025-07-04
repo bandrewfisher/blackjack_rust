@@ -4,6 +4,7 @@ use crate::sheet_sprite::{SharedSprite, Sprite};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use macroquad::audio::{PlaySoundParams, Sound, load_sound, play_sound};
 use macroquad::prelude::*;
 use std::collections::{HashMap, VecDeque};
 
@@ -30,6 +31,13 @@ fn player_cards_pos() -> Vec2 {
     )
 }
 
+fn dealer_cards_pos() -> Vec2 {
+    vec2(
+        (screen_width() / 2.0) - (CARD_W * SPRITE_SCALE / 2.0),
+        SCREEN_PADDING,
+    )
+}
+
 enum GameState {
     NewGame,
     DealingInitialHand,
@@ -53,6 +61,9 @@ pub struct BlackjackGui {
     // Textures
     deck_texture: Rc<Texture2D>,
     cards_texture: Rc<Texture2D>,
+
+    // Sounds
+    card_flip_sound: Sound,
 }
 
 impl BlackjackGui {
@@ -103,6 +114,9 @@ impl BlackjackGui {
             }
         }
 
+        // Load SFX
+        let card_flip_sound = load_sound("assets/sfx/flipcard.wav").await.unwrap();
+
         Self {
             game: Blackjack::new(),
             card_sprites,
@@ -111,6 +125,7 @@ impl BlackjackGui {
             state: GameState::NewGame,
             deck_texture,
             cards_texture,
+            card_flip_sound,
         }
     }
 
@@ -160,22 +175,28 @@ impl BlackjackGui {
 
                 let deck_pos = deck_pos();
                 let player_cards_pos = player_cards_pos();
+                let dealer_cards_pos = dealer_cards_pos();
 
-                let pcard1_repr = &player_cards[0].repr();
-                let pcard2_repr = &player_cards[1].repr();
-                // let pcard1 = self.create_card_sprite(&pcard1_repr, deck_pos).unwrap();
-                // let pcard2 = self.create_card_sprite(&pcard2_repr, deck_pos).unwrap();
-
+                // Player card sprites and card strings
+                let pcard1_repr = player_cards[0].repr();
+                let pcard2_repr = player_cards[1].repr();
                 let pcard1 = self.create_facedown_card_sprite(deck_pos);
                 let pcard2 = self.create_facedown_card_sprite(deck_pos);
 
+                // Dealer card sprites and card strings
+                let dcard1_repr = dealer_cards[0].repr();
+                let dcard2_repr = dealer_cards[1].repr();
+                let dcard1 = self.create_facedown_card_sprite(deck_pos);
+                let dcard2 = self.create_facedown_card_sprite(deck_pos);
+
+                // Player card animations
                 self.deal_animations.push(Animation::new(
                     Rc::clone(&pcard1),
                     player_cards_pos,
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: false,
-                        card_repr: String::from(pcard1_repr),
+                        card_repr: pcard1_repr,
                         should_flip: true,
                     },
                 ));
@@ -188,13 +209,40 @@ impl BlackjackGui {
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: false,
-                        card_repr: String::from(pcard2_repr),
+                        card_repr: pcard2_repr,
                         should_flip: true,
                     },
                 ));
 
-                self.sprites.push(pcard2);
+                // Dealer card animations
+                self.deal_animations.push(Animation::new(
+                    Rc::clone(&dcard1),
+                    dealer_cards_pos,
+                    0.7,
+                    CardAnimationMetadata {
+                        is_dealer_card: true,
+                        card_repr: dcard1_repr,
+                        should_flip: true,
+                    },
+                ));
+                self.deal_animations.push(Animation::new(
+                    Rc::clone(&dcard2),
+                    vec2(
+                        dealer_cards_pos.x + (CARD_W * SPRITE_SCALE / 3.0),
+                        dealer_cards_pos.y,
+                    ),
+                    0.7,
+                    CardAnimationMetadata {
+                        is_dealer_card: true,
+                        card_repr: dcard2_repr,
+                        should_flip: false,
+                    },
+                ));
+
                 self.sprites.push(pcard1);
+                self.sprites.push(pcard2);
+                self.sprites.push(dcard1);
+                self.sprites.push(dcard2);
 
                 self.set_state(GameState::DealingInitialHand);
             }
@@ -216,11 +264,30 @@ impl BlackjackGui {
     and start handling the next deal animation.
     */
     pub fn handle_deal_animations(&mut self, delta_time: f32) {
+        // If animation is starting, play the card flip sound effect
+        if self
+            .deal_animations
+            .cur_animation_state()
+            .is_some_and(|s| s == AnimationState::NotStarted)
+        {
+            println!("starting animation");
+            play_sound(
+                &self.card_flip_sound,
+                PlaySoundParams {
+                    looped: false,
+                    volume: 0.7,
+                },
+            );
+        }
+
         // We get an animation back if ticking yields a completed animation
         if let Some(animation) = self.deal_animations.tick(delta_time) {
-            println!("animation metadata: {:?}", animation.metadata());
             let sprite = animation.sprite();
             let metadata = animation.metadata();
+
+            if !metadata.should_flip {
+                return;
+            }
 
             self.remove_sprite(sprite);
 

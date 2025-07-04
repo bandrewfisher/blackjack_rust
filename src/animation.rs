@@ -3,7 +3,7 @@ use crate::sheet_sprite::SharedSprite;
 use macroquad::prelude::*;
 use std::collections::VecDeque;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimationState {
     NotStarted,
     Running,
@@ -94,6 +94,13 @@ impl<T> AnimationQueue<T> {
 
     pub fn push(&mut self, animation: Animation<T>) {
         self.queue.push_back(animation);
+    }
+
+    pub fn cur_animation_state(&self) -> Option<AnimationState> {
+        if let Some(animation) = self.queue.front() {
+            return Some(animation.state());
+        }
+        None
     }
 
     pub fn tick(&mut self, delta_time: f32) -> Option<Animation<T>> {
