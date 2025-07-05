@@ -2,6 +2,7 @@ mod blackjack;
 mod blackjack_gui;
 mod sheet_sprite;
 mod animation;
+mod button;
 
 use macroquad::prelude::*;
 use blackjack_gui::BlackjackGui;

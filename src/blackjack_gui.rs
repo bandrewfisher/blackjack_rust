@@ -1,6 +1,7 @@
 use crate::animation::{Animation, AnimationQueue, AnimationState};
 use crate::blackjack::Blackjack;
 use crate::sheet_sprite::{SharedSprite, Sprite};
+use crate::button::{Button, ButtonEvent};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -210,7 +211,7 @@ impl BlackjackGui {
                 self.deal_animations.push(Animation::new(
                     Rc::clone(&pcard2),
                     vec2(
-                        player_cards_pos.x + (CARD_W / 3.0),
+                        player_cards_pos.x + (CARD_W / 4.0),
                         player_cards_pos.y,
                     ),
                     0.7,
@@ -235,7 +236,7 @@ impl BlackjackGui {
                 self.deal_animations.push(Animation::new(
                     Rc::clone(&dcard2),
                     vec2(
-                        dealer_cards_pos.x + (CARD_W / 3.0),
+                        dealer_cards_pos.x + (CARD_W / 4.0),
                         dealer_cards_pos.y,
                     ),
                     0.7,
@@ -309,6 +310,7 @@ impl BlackjackGui {
     }
 
     pub async fn run(&mut self) {
+        let btn = Button::new("Hit", 100.0, 100.0);
         loop {
             let delta_time = get_frame_time();
 
@@ -321,10 +323,18 @@ impl BlackjackGui {
             // Handle deal animations
             self.handle_deal_animations(delta_time);
 
+
+            // Draw buttons
+            let event = btn.draw();
+            if event.clicked {
+                println!("Clicked button");
+            }
+
             // Render sprites
             for sprite in &self.sprites {
                 sprite.borrow().draw();
             }
+
 
             next_frame().await
         }
