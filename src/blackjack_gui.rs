@@ -1,7 +1,7 @@
 use crate::animation::{Animation, AnimationQueue, AnimationState};
-use crate::blackjack::Blackjack;
+use crate::blackjack::{Blackjack, Hand, Card};
+use crate::button::{Button, ButtonConfig, ButtonEvent};
 use crate::sheet_sprite::{SharedSprite, Sprite};
-use crate::button::{Button, ButtonEvent};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -24,12 +24,8 @@ const CARD_H_PX: f32 = 64.0;
 const CARD_W: f32 = CARD_W_PX * SPRITE_SCALE;
 const CARD_H: f32 = CARD_H_PX * SPRITE_SCALE;
 
-
 fn deck_pos() -> Vec2 {
-    vec2(
-        screen_width() - SCREEN_PADDING - DECK_W,
-        SCREEN_PADDING,
-    )
+    vec2(screen_width() - SCREEN_PADDING - DECK_W, SCREEN_PADDING)
 }
 
 fn player_cards_pos() -> Vec2 {
@@ -40,15 +36,13 @@ fn player_cards_pos() -> Vec2 {
 }
 
 fn dealer_cards_pos() -> Vec2 {
-    vec2(
-        (screen_width() / 2.0) - (CARD_W / 2.0),
-        SCREEN_PADDING,
-    )
+    vec2((screen_width() / 2.0) - (CARD_W / 2.0), SCREEN_PADDING)
 }
 
+#[derive(Debug, Clone, PartialEq)]
 enum GameState {
     NewGame,
-    DealingInitialHand,
+    DealingCard,
     WaitingPlayerInput,
 }
 
@@ -62,8 +56,14 @@ struct CardAnimationMetadata {
 pub struct BlackjackGui {
     game: Blackjack,
     state: GameState,
+
+    // Maps a card repr like "AH" to a sprite template for that card
     card_sprites: HashMap<String, SharedSprite>,
+
+    // Queue for deal animations
     deal_animations: AnimationQueue<CardAnimationMetadata>,
+
+    // Each sprite to render on the screen
     sprites: Vec<SharedSprite>,
 
     // Textures
@@ -72,6 +72,13 @@ pub struct BlackjackGui {
 
     // Sounds
     card_flip_sound: Sound,
+
+    // Buttons
+    hit_button: Button,
+    stand_button: Button,
+
+    // Hands
+    player_hand: Hand
 }
 
 impl BlackjackGui {
@@ -125,6 +132,29 @@ impl BlackjackGui {
         // Load SFX
         let card_flip_sound = load_sound("assets/sfx/flipcard.wav").await.unwrap();
 
+        // Create buttons
+        let hit_btn_pos = vec2(SCREEN_PADDING + 50.0, deck_pos.y + 50.0);
+        let hit_button = Button::new(
+            "Hit",
+            hit_btn_pos.x,
+            hit_btn_pos.y,
+            ButtonConfig {
+                color: GREEN,
+                ..Default::default()
+            },
+        );
+
+        let stand_button = Button::new(
+            "Stand",
+            hit_btn_pos.x,
+            hit_btn_pos.y + hit_button.height() + 25.0,
+            ButtonConfig {
+                color: RED,
+                text_color: WHITE,
+                ..Default::default()
+            },
+        );
+
         Self {
             game: Blackjack::new(),
             card_sprites,
@@ -134,6 +164,9 @@ impl BlackjackGui {
             deck_texture,
             cards_texture,
             card_flip_sound,
+            hit_button,
+            stand_button,
+            player_hand: Hand::new()
         }
     }
 
@@ -199,7 +232,7 @@ impl BlackjackGui {
 
                 // Player card animations
                 self.deal_animations.push(Animation::new(
-                    Rc::clone(&pcard1),
+                    pcard1,
                     player_cards_pos,
                     0.7,
                     CardAnimationMetadata {
@@ -209,11 +242,8 @@ impl BlackjackGui {
                     },
                 ));
                 self.deal_animations.push(Animation::new(
-                    Rc::clone(&pcard2),
-                    vec2(
-                        player_cards_pos.x + (CARD_W / 4.0),
-                        player_cards_pos.y,
-                    ),
+                    pcard2,
+                    vec2(player_cards_pos.x + (CARD_W / 4.0), player_cards_pos.y),
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: false,
@@ -224,7 +254,7 @@ impl BlackjackGui {
 
                 // Dealer card animations
                 self.deal_animations.push(Animation::new(
-                    Rc::clone(&dcard1),
+                    dcard1,
                     dealer_cards_pos,
                     0.7,
                     CardAnimationMetadata {
@@ -234,11 +264,8 @@ impl BlackjackGui {
                     },
                 ));
                 self.deal_animations.push(Animation::new(
-                    Rc::clone(&dcard2),
-                    vec2(
-                        dealer_cards_pos.x + (CARD_W / 4.0),
-                        dealer_cards_pos.y,
-                    ),
+                    dcard2,
+                    vec2(dealer_cards_pos.x + (CARD_W / 4.0), dealer_cards_pos.y),
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: true,
@@ -247,11 +274,10 @@ impl BlackjackGui {
                     },
                 ));
 
-
-                self.set_state(GameState::DealingInitialHand);
+                self.set_state(GameState::DealingCard);
             }
 
-            GameState::DealingInitialHand => {
+            GameState::DealingCard => {
                 // Done dealing the cards
                 if self.deal_animations.len() < 1 {
                     self.set_state(GameState::WaitingPlayerInput);
@@ -295,22 +321,72 @@ impl BlackjackGui {
             let sprite = animation.sprite();
             let metadata = animation.metadata();
 
+            // Don't flip over dealer second card
             if !metadata.should_flip {
                 return;
             }
 
+            // Remove the facedown card and show the faceup card instead
             self.remove_sprite(sprite);
-
             if let Some(card_sprite) =
                 self.create_card_sprite(&metadata.card_repr, sprite.borrow().get_pos())
             {
                 self.sprites.push(card_sprite);
             }
+
+            // Update the player hand with the new card.
+            // We don't use it from Blackjack because we only want
+            // to show the updated score when the card is flipped over
+            if !metadata.is_dealer_card {
+                self.player_hand.add_card(Card::from_repr(&metadata.card_repr));
+            }
         }
     }
 
+    fn handle_buttons(&mut self) {
+        // Hit button
+        let hit_event = self.hit_button.draw();
+        if hit_event.clicked && self.state == GameState::WaitingPlayerInput {
+            if let Some(card) = self.game.hit() {
+                let player_cards_pos = player_cards_pos();
+                let new_card_pos = vec2(
+                    player_cards_pos.x + (self.game.player_cards().len() - 1) as f32 * (CARD_W / 4.0), // Slide the card over by however many other cards are already there
+                    player_cards_pos.y,
+                );
+                let card_sprite = self.create_facedown_card_sprite(deck_pos());
+                // Add a new animation for the card
+                self.deal_animations.push(Animation::new(
+                    card_sprite,
+                    new_card_pos,
+                    0.7,
+                    CardAnimationMetadata {
+                        is_dealer_card: false,
+                        card_repr: card.repr(),
+                        should_flip: true,
+                    },
+                ));
+
+                self.set_state(GameState::DealingCard);
+            }
+        }
+
+        // Stand button
+        self.stand_button.draw();
+    }
+
+    pub fn draw_player_score(&self) {
+        let player_cards_pos = player_cards_pos();
+        draw_text(
+            &format!("Score: {}", self.player_hand.value()),
+            player_cards_pos.x - 32.0,
+            player_cards_pos.y - 16.0,
+            32.0,
+            BLACK
+        );
+    }
+
     pub async fn run(&mut self) {
-        let btn = Button::new("Hit", 100.0, 100.0);
+        // Main loop
         loop {
             let delta_time = get_frame_time();
 
@@ -318,23 +394,21 @@ impl BlackjackGui {
             self.handle_state();
 
             // Rest of the code handles drawing to the screen
-            clear_background(RED);
+            clear_background(VIOLET);
 
             // Handle deal animations
             self.handle_deal_animations(delta_time);
 
-
             // Draw buttons
-            let event = btn.draw();
-            if event.clicked {
-                println!("Clicked button");
-            }
+            self.handle_buttons();
+
+            // Render score
+            self.draw_player_score();
 
             // Render sprites
             for sprite in &self.sprites {
                 sprite.borrow().draw();
             }
-
 
             next_frame().await
         }

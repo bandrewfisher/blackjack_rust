@@ -25,6 +25,40 @@ pub struct Card {
 }
 
 impl Card {
+    /*
+    Creates a new card from a string like "AS", "10H"
+    */
+    pub fn from_repr(card_repr: &str) -> Self {
+        let (rank_str, suit_str) = card_repr.split_at(card_repr.len() - 1);
+
+        let rank = match rank_str {
+            "J" => Rank::Jack,
+            "Q" => Rank::Queen,
+            "K" => Rank::King,
+            "A" => Rank::Ace,
+            _ => {
+                let n = rank_str.parse::<u32>().expect("Expected rank to be a number");
+                assert!((2..=10).contains(&n), "Invalid number for card rank");
+                Rank::Number(n)
+            }
+        };
+
+        let suit = match suit_str {
+            "H" => Suit::Hearts,
+            "C" => Suit::Clubs,
+            "D" => Suit::Diamonds,
+            "S" => Suit::Spades,
+            _ => {
+                panic!("Invalid suit: {}", &suit_str);
+            }
+        };
+
+        Self {
+            rank,
+            suit
+        }
+    }
+
     pub fn repr(&self) -> String {
         let mut card_str = String::new();
 
@@ -113,16 +147,16 @@ impl Deck {
     }
 }
 
-struct Hand {
+pub struct Hand {
     cards: Vec<Card>,
 }
 
 impl Hand {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { cards: Vec::new() }
     }
 
-    fn value(&self) -> u32 {
+    pub fn value(&self) -> u32 {
         let mut aces = 0;
         let mut total_value = 0;
 
@@ -150,11 +184,11 @@ impl Hand {
         total_value
     }
 
-    fn add_card(&mut self, card: Card) {
+    pub fn add_card(&mut self, card: Card) {
         self.cards.push(card);
     }
 
-    fn cards(&self) -> &[Card] {
+    pub fn cards(&self) -> &[Card] {
         &self.cards
     }
 }
