@@ -1,6 +1,7 @@
 use crate::animation::{Animation, AnimationQueue, AnimationState};
 use crate::blackjack::{Blackjack, Hand, Card};
 use crate::button::{Button, ButtonConfig, ButtonEvent};
+use crate::message_box::MessageBox;
 use crate::sheet_sprite::{SharedSprite, Sprite};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,6 +24,8 @@ const CARD_H_PX: f32 = 64.0;
 
 const CARD_W: f32 = CARD_W_PX * SPRITE_SCALE;
 const CARD_H: f32 = CARD_H_PX * SPRITE_SCALE;
+
+const SCORE_FONT_SIZE: f32 = 32.0;
 
 fn deck_pos() -> Vec2 {
     vec2(screen_width() - SCREEN_PADDING - DECK_W, SCREEN_PADDING)
@@ -78,7 +81,8 @@ pub struct BlackjackGui {
     stand_button: Button,
 
     // Hands
-    player_hand: Hand
+    player_hand: Hand,
+    dealer_hand: Hand
 }
 
 impl BlackjackGui {
@@ -166,7 +170,8 @@ impl BlackjackGui {
             card_flip_sound,
             hit_button,
             stand_button,
-            player_hand: Hand::new()
+            player_hand: Hand::new(),
+            dealer_hand: Hand::new()
         }
     }
 
@@ -337,7 +342,9 @@ impl BlackjackGui {
             // Update the player hand with the new card.
             // We don't use it from Blackjack because we only want
             // to show the updated score when the card is flipped over
-            if !metadata.is_dealer_card {
+            if metadata.is_dealer_card {
+                self.dealer_hand.add_card(Card::from_repr(&metadata.card_repr));
+            } else {
                 self.player_hand.add_card(Card::from_repr(&metadata.card_repr));
             }
         }
@@ -380,12 +387,28 @@ impl BlackjackGui {
             &format!("Score: {}", self.player_hand.value()),
             player_cards_pos.x - 32.0,
             player_cards_pos.y - 16.0,
-            32.0,
+            SCORE_FONT_SIZE,
+            BLACK
+        );
+    }
+
+    pub fn draw_dealer_score(&self) {
+        let dealer_cards_pos = dealer_cards_pos();
+        let text = format!("Score: {}", self.dealer_hand.value());
+        let text_size = measure_text(
+            &text, None, SCORE_FONT_SIZE as u16, 1.0
+        );
+        draw_text(
+            &text,
+            dealer_cards_pos.x - 32.0,
+            dealer_cards_pos.y + text_size.height  + CARD_H + 16.0,
+            SCORE_FONT_SIZE,
             BLACK
         );
     }
 
     pub async fn run(&mut self) {
+        let message_box = MessageBox::new("You busted!", "Play again");
         // Main loop
         loop {
             let delta_time = get_frame_time();
@@ -404,11 +427,14 @@ impl BlackjackGui {
 
             // Render score
             self.draw_player_score();
+            self.draw_dealer_score();
 
             // Render sprites
             for sprite in &self.sprites {
                 sprite.borrow().draw();
             }
+
+            message_box.draw();
 
             next_frame().await
         }
