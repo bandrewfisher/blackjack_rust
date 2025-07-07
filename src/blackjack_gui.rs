@@ -47,6 +47,7 @@ enum GameState {
     NewGame,
     DealingCard,
     WaitingPlayerInput,
+    PlayerBusted
 }
 
 #[derive(Debug, Clone)]
@@ -61,13 +62,15 @@ pub struct BlackjackGui {
     state: GameState,
 
     // Maps a card repr like "AH" to a sprite template for that card
-    card_sprites: HashMap<String, SharedSprite>,
+    card_sprite_map: HashMap<String, SharedSprite>,
 
     // Queue for deal animations
     deal_animations: AnimationQueue<CardAnimationMetadata>,
 
     // Each sprite to render on the screen
-    sprites: Vec<SharedSprite>,
+    deck_sprite: SharedSprite,
+    card_sprites: Vec<SharedSprite>,
+    dealer_down_card: Option<SharedSprite>,
 
     // Textures
     deck_texture: Rc<Texture2D>,
@@ -82,19 +85,22 @@ pub struct BlackjackGui {
 
     // Hands
     player_hand: Hand,
-    dealer_hand: Hand
+    dealer_hand: Hand,
+
+    // Message box, set to None if there is not one to display
+    message_box: Option<MessageBox>
 }
 
 impl BlackjackGui {
     pub async fn new() -> Self {
-        let mut sprites: Vec<SharedSprite> = Vec::new();
+        let mut card_sprites: Vec<SharedSprite> = Vec::new();
 
         // Load deck texture and sprite
         let deck_texture = Rc::new(load_texture("assets/cards/decks_fixed.png").await.unwrap());
         deck_texture.set_filter(FilterMode::Nearest);
 
         let deck_pos = deck_pos();
-        let mut deck_sprite = Sprite::new(
+        let mut deck_sprite = Rc::new(RefCell::new(Sprite::new(
             Rc::clone(&deck_texture),
             4,
             0,
@@ -102,14 +108,13 @@ impl BlackjackGui {
             DECK_H_PX,
             deck_pos,
             SPRITE_SCALE,
-        );
-        sprites.push(Rc::new(RefCell::new(deck_sprite)));
+        )));
 
         // Load card texture and sprites
         let cards_texture = Rc::new(load_texture("assets/cards/cards.png").await.unwrap());
         cards_texture.set_filter(FilterMode::Nearest);
 
-        let mut card_sprites = HashMap::new();
+        let mut card_sprite_map = HashMap::new();
         for (row, suit) in ["H", "D", "S", "C"].iter().enumerate() {
             for (col, rank) in [
                 "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K",
@@ -126,7 +131,7 @@ impl BlackjackGui {
                     vec2(0.0, 0.0),
                     SPRITE_SCALE,
                 );
-                card_sprites.insert(
+                card_sprite_map.insert(
                     format!("{}{}", rank, suit),
                     Rc::new(RefCell::new(card_sprite)),
                 );
@@ -161,9 +166,10 @@ impl BlackjackGui {
 
         Self {
             game: Blackjack::new(),
-            card_sprites,
+            card_sprite_map,
             deal_animations: AnimationQueue::new(),
-            sprites,
+            card_sprites,
+            deck_sprite,
             state: GameState::NewGame,
             deck_texture,
             cards_texture,
@@ -171,7 +177,9 @@ impl BlackjackGui {
             hit_button,
             stand_button,
             player_hand: Hand::new(),
-            dealer_hand: Hand::new()
+            dealer_hand: Hand::new(),
+            message_box: None,
+            dealer_down_card: None
         }
     }
 
@@ -192,7 +200,7 @@ impl BlackjackGui {
     }
 
     fn create_card_sprite(&self, card_repr: &str, position: Vec2) -> Option<SharedSprite> {
-        if let Some(card_sprite_ref) = self.card_sprites.get(card_repr) {
+        if let Some(card_sprite_ref) = self.card_sprite_map.get(card_repr) {
             let card_sprite = card_sprite_ref.borrow();
             let mut new_sprite = Sprite::new(
                 Rc::clone(&self.cards_texture),
@@ -209,8 +217,8 @@ impl BlackjackGui {
         None
     }
 
-    fn remove_sprite(&mut self, sprite: &SharedSprite) {
-        self.sprites.retain(|s| !Rc::ptr_eq(s, sprite))
+    fn remove_card_sprite(&mut self, sprite: &SharedSprite) {
+        self.card_sprites.retain(|s| !Rc::ptr_eq(s, sprite))
     }
 
     fn handle_state(&mut self) {
@@ -235,6 +243,7 @@ impl BlackjackGui {
                 let dcard1 = self.create_facedown_card_sprite(deck_pos);
                 let dcard2 = self.create_facedown_card_sprite(deck_pos);
 
+                self.dealer_down_card = Some(Rc::clone(&dcard2));
                 // Player card animations
                 self.deal_animations.push(Animation::new(
                     pcard1,
@@ -289,7 +298,14 @@ impl BlackjackGui {
                 }
             }
 
-            GameState::WaitingPlayerInput => {}
+            GameState::WaitingPlayerInput => {
+                if self.player_hand.value() > 21 {
+                    self.message_box = Some(MessageBox::new("You busted!", "Play again"));
+                    self.set_state(GameState::PlayerBusted);
+                }
+            }
+
+            GameState::PlayerBusted => {}
         }
     }
 
@@ -317,7 +333,7 @@ impl BlackjackGui {
             // We do it here to keep the correct rendering order, so that
             // each dealt card appears on top of the prior ones.
             if let Some(animation) = self.deal_animations.cur_animation() {
-                self.sprites.push(Rc::clone(animation.sprite()));
+                self.card_sprites.push(Rc::clone(animation.sprite()));
             }
         }
 
@@ -332,11 +348,11 @@ impl BlackjackGui {
             }
 
             // Remove the facedown card and show the faceup card instead
-            self.remove_sprite(sprite);
+            self.remove_card_sprite(sprite);
             if let Some(card_sprite) =
                 self.create_card_sprite(&metadata.card_repr, sprite.borrow().get_pos())
             {
-                self.sprites.push(card_sprite);
+                self.card_sprites.push(card_sprite);
             }
 
             // Update the player hand with the new card.
@@ -378,7 +394,26 @@ impl BlackjackGui {
         }
 
         // Stand button
-        self.stand_button.draw();
+        let stand_event = self.stand_button.draw();
+        if stand_event.clicked && self.state == GameState::WaitingPlayerInput {
+            // Remove the facedown dealer card
+            let down_card_sprite = Rc::clone(self.dealer_down_card.as_ref().unwrap());
+            let down_card_pos = down_card_sprite.borrow().get_pos();
+            self.remove_card_sprite(&down_card_sprite);
+
+            // Show the second dealer card
+            let dealer_down_card = self.game.dealer_cards()[1].repr();
+            if let Some(card_sprite) = self.create_card_sprite(&dealer_down_card, down_card_pos) {
+                self.card_sprites.push(card_sprite);
+                self.dealer_hand.add_card(Card::from_repr(&dealer_down_card));
+            }
+
+            // Add each new dealer card to the animation queue
+            self.game.deal_dealer_cards();
+            for card in &self.game.dealer_cards()[2..] {
+                println!("{}", card.repr());
+            }
+        }
     }
 
     pub fn draw_player_score(&self) {
@@ -407,8 +442,26 @@ impl BlackjackGui {
         );
     }
 
+    pub fn reset(&mut self) {
+        self.game = Blackjack::new();
+        self.set_state(GameState::NewGame);
+        self.deal_animations = AnimationQueue::new();
+        self.player_hand = Hand::new();
+        self.dealer_hand = Hand::new();
+        self.message_box = None;
+        self.card_sprites = Vec::new();
+    }
+
+    pub fn handle_message_box(&mut self) {
+         if let Some(message_box) = &self.message_box {
+            let message_box_event = message_box.draw();
+            if message_box_event.button_event.clicked {
+                self.reset();
+            }
+        }
+    }
+
     pub async fn run(&mut self) {
-        let message_box = MessageBox::new("You busted!", "Play again");
         // Main loop
         loop {
             let delta_time = get_frame_time();
@@ -430,11 +483,13 @@ impl BlackjackGui {
             self.draw_dealer_score();
 
             // Render sprites
-            for sprite in &self.sprites {
+            self.deck_sprite.borrow().draw();
+            for sprite in &self.card_sprites {
                 sprite.borrow().draw();
             }
 
-            message_box.draw();
+            // Render message box
+            self.handle_message_box();
 
             next_frame().await
         }
