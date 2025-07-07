@@ -4,7 +4,7 @@ use crate::button::{Button, ButtonEvent, ButtonConfig};
 const MODAL_HEIGHT: f32 = 350.0;
 const MODAL_WIDTH: f32 = 500.0;
 
-const MESSAGE_TEXT_SIZE: f32 = 64.0;
+const MESSAGE_TEXT_SIZE: f32 = 48.0;
 
 pub struct MessageBoxEvent {
     pub button_event: ButtonEvent

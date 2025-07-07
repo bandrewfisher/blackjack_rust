@@ -25,6 +25,8 @@ const CARD_H_PX: f32 = 64.0;
 const CARD_W: f32 = CARD_W_PX * SPRITE_SCALE;
 const CARD_H: f32 = CARD_H_PX * SPRITE_SCALE;
 
+const CARD_GAP: f32 = CARD_W / 4.0; // How much space to put between each card
+
 const SCORE_FONT_SIZE: f32 = 32.0;
 
 fn deck_pos() -> Vec2 {
@@ -47,7 +49,12 @@ enum GameState {
     NewGame,
     DealingCard,
     WaitingPlayerInput,
-    PlayerBusted
+    DealingDealerCards,
+    PlayerBusted,
+    DealerBusted,
+    DealerWins,
+    PlayerWins,
+    Tie
 }
 
 #[derive(Debug, Clone)]
@@ -257,7 +264,7 @@ impl BlackjackGui {
                 ));
                 self.deal_animations.push(Animation::new(
                     pcard2,
-                    vec2(player_cards_pos.x + (CARD_W / 4.0), player_cards_pos.y),
+                    vec2(player_cards_pos.x + CARD_GAP, player_cards_pos.y),
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: false,
@@ -279,7 +286,7 @@ impl BlackjackGui {
                 ));
                 self.deal_animations.push(Animation::new(
                     dcard2,
-                    vec2(dealer_cards_pos.x + (CARD_W / 4.0), dealer_cards_pos.y),
+                    vec2(dealer_cards_pos.x + CARD_GAP, dealer_cards_pos.y),
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: true,
@@ -306,6 +313,35 @@ impl BlackjackGui {
             }
 
             GameState::PlayerBusted => {}
+
+            GameState::DealingDealerCards => {
+                if self.deal_animations.len() < 1 {
+                    let dealer_hand_value = self.dealer_hand.value();
+                    let player_hand_value = self.player_hand.value();
+
+                    if dealer_hand_value > 21 {
+                        self.message_box = Some(MessageBox::new("Dealer busted, you win!", "Play again"));
+                        self.set_state(GameState::DealerBusted);
+                    } else if dealer_hand_value > player_hand_value {
+                        self.message_box = Some(MessageBox::new("You lose!", "Play again"));
+                        self.set_state(GameState::DealerWins);
+                    } else if player_hand_value > dealer_hand_value {
+                        self.message_box = Some(MessageBox::new("You win!", "Play again"));
+                        self.set_state(GameState::PlayerWins);
+                    } else if player_hand_value == dealer_hand_value {
+                        self.message_box = Some(MessageBox::new("It's a tie!", "Play again"));
+                        self.set_state(GameState::Tie);
+                    }
+                }
+            }
+
+            GameState::DealerBusted => {}
+
+            GameState::DealerWins => {}
+
+            GameState::PlayerWins => {}
+
+            GameState::Tie => {}
         }
     }
 
@@ -373,7 +409,7 @@ impl BlackjackGui {
             if let Some(card) = self.game.hit() {
                 let player_cards_pos = player_cards_pos();
                 let new_card_pos = vec2(
-                    player_cards_pos.x + (self.game.player_cards().len() - 1) as f32 * (CARD_W / 4.0), // Slide the card over by however many other cards are already there
+                    player_cards_pos.x + (self.game.player_cards().len() - 1) as f32 * CARD_GAP, // Slide the card over by however many other cards are already there
                     player_cards_pos.y,
                 );
                 let card_sprite = self.create_facedown_card_sprite(deck_pos());
@@ -393,6 +429,8 @@ impl BlackjackGui {
             }
         }
 
+        // For some reason on Mac, the click isn't always registered???
+        // Works fine on Linux + WASM. Moral of the story - FUCK APPLE OMFGGGGG
         // Stand button
         let stand_event = self.stand_button.draw();
         if stand_event.clicked && self.state == GameState::WaitingPlayerInput {
@@ -410,9 +448,27 @@ impl BlackjackGui {
 
             // Add each new dealer card to the animation queue
             self.game.deal_dealer_cards();
+            let dealer_cards_pos = dealer_cards_pos();
+            let mut card_gap_idx = 1;   // 2 cards already in dealer's hand, -1 for 0-based index
             for card in &self.game.dealer_cards()[2..] {
-                println!("{}", card.repr());
+                let card_sprite = self.create_card_sprite(&card.repr(), deck_pos()).unwrap();
+                card_gap_idx += 1;
+                self.deal_animations.push(Animation::new(
+                    card_sprite,
+                    vec2(
+                        dealer_cards_pos.x + CARD_GAP * card_gap_idx as f32,
+                        dealer_cards_pos.y
+                    ),
+                    0.7,
+                    CardAnimationMetadata {
+                        is_dealer_card: true,
+                        card_repr: card.repr(),
+                        should_flip: true,
+                    }
+                ));
             }
+
+            self.set_state(GameState::DealingDealerCards);
         }
     }
 
