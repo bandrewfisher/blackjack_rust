@@ -1,5 +1,5 @@
 use crate::animation::{Animation, AnimationQueue, AnimationState};
-use crate::blackjack::{Blackjack, Hand, Card};
+use crate::blackjack::{Blackjack, Card, Hand};
 use crate::button::{Button, ButtonConfig, ButtonEvent};
 use crate::message_box::MessageBox;
 use crate::sheet_sprite::{SharedSprite, Sprite};
@@ -54,7 +54,7 @@ enum GameState {
     DealerBusted,
     DealerWins,
     PlayerWins,
-    Tie
+    Tie,
 }
 
 #[derive(Debug, Clone)]
@@ -95,7 +95,7 @@ pub struct BlackjackGui {
     dealer_hand: Hand,
 
     // Message box, set to None if there is not one to display
-    message_box: Option<MessageBox>
+    message_box: Option<MessageBox>,
 }
 
 impl BlackjackGui {
@@ -186,7 +186,7 @@ impl BlackjackGui {
             player_hand: Hand::new(),
             dealer_hand: Hand::new(),
             message_box: None,
-            dealer_down_card: None
+            dealer_down_card: None,
         }
     }
 
@@ -226,6 +226,15 @@ impl BlackjackGui {
 
     fn remove_card_sprite(&mut self, sprite: &SharedSprite) {
         self.card_sprites.retain(|s| !Rc::ptr_eq(s, sprite))
+    }
+
+    fn get_score_messages(&self) -> Vec<String> {
+        //! Returns the message to show in each modal, which shows the scores
+        let mut score_messages = Vec::new();
+        score_messages.push(format!("Your cards: {}", self.player_hand.value()));
+        score_messages.push(format!("Dealer cards: {}", self.dealer_hand.value()));
+
+        score_messages
     }
 
     fn handle_state(&mut self) {
@@ -307,7 +316,11 @@ impl BlackjackGui {
 
             GameState::WaitingPlayerInput => {
                 if self.player_hand.value() > 21 {
-                    self.message_box = Some(MessageBox::new("You busted!", "Play again"));
+                    self.message_box = Some(MessageBox::new(
+                        "You busted!",
+                        self.get_score_messages(),
+                        "Play again",
+                    ));
                     self.set_state(GameState::PlayerBusted);
                 }
             }
@@ -319,17 +332,26 @@ impl BlackjackGui {
                     let dealer_hand_value = self.dealer_hand.value();
                     let player_hand_value = self.player_hand.value();
 
+                    let score_messages = self.get_score_messages();
+
                     if dealer_hand_value > 21 {
-                        self.message_box = Some(MessageBox::new("Dealer busted, you win!", "Play again"));
+                        self.message_box = Some(MessageBox::new(
+                            "Dealer busted, you win!",
+                            score_messages,
+                            "Play again",
+                        ));
                         self.set_state(GameState::DealerBusted);
                     } else if dealer_hand_value > player_hand_value {
-                        self.message_box = Some(MessageBox::new("You lose!", "Play again"));
+                        self.message_box =
+                            Some(MessageBox::new("You lose!", score_messages, "Play again"));
                         self.set_state(GameState::DealerWins);
                     } else if player_hand_value > dealer_hand_value {
-                        self.message_box = Some(MessageBox::new("You win!", "Play again"));
+                        self.message_box =
+                            Some(MessageBox::new("You win!", score_messages, "Play again"));
                         self.set_state(GameState::PlayerWins);
                     } else if player_hand_value == dealer_hand_value {
-                        self.message_box = Some(MessageBox::new("It's a tie!", "Play again"));
+                        self.message_box =
+                            Some(MessageBox::new("It's a tie!", score_messages, "Play again"));
                         self.set_state(GameState::Tie);
                     }
                 }
@@ -395,9 +417,11 @@ impl BlackjackGui {
             // We don't use it from Blackjack because we only want
             // to show the updated score when the card is flipped over
             if metadata.is_dealer_card {
-                self.dealer_hand.add_card(Card::from_repr(&metadata.card_repr));
+                self.dealer_hand
+                    .add_card(Card::from_repr(&metadata.card_repr));
             } else {
-                self.player_hand.add_card(Card::from_repr(&metadata.card_repr));
+                self.player_hand
+                    .add_card(Card::from_repr(&metadata.card_repr));
             }
         }
     }
@@ -443,13 +467,14 @@ impl BlackjackGui {
             let dealer_down_card = self.game.dealer_cards()[1].repr();
             if let Some(card_sprite) = self.create_card_sprite(&dealer_down_card, down_card_pos) {
                 self.card_sprites.push(card_sprite);
-                self.dealer_hand.add_card(Card::from_repr(&dealer_down_card));
+                self.dealer_hand
+                    .add_card(Card::from_repr(&dealer_down_card));
             }
 
             // Add each new dealer card to the animation queue
             self.game.deal_dealer_cards();
             let dealer_cards_pos = dealer_cards_pos();
-            let mut card_gap_idx = 1;   // 2 cards already in dealer's hand, -1 for 0-based index
+            let mut card_gap_idx = 1; // 2 cards already in dealer's hand, -1 for 0-based index
             for card in &self.game.dealer_cards()[2..] {
                 let card_sprite = self.create_card_sprite(&card.repr(), deck_pos()).unwrap();
                 card_gap_idx += 1;
@@ -457,14 +482,14 @@ impl BlackjackGui {
                     card_sprite,
                     vec2(
                         dealer_cards_pos.x + CARD_GAP * card_gap_idx as f32,
-                        dealer_cards_pos.y
+                        dealer_cards_pos.y,
                     ),
                     0.7,
                     CardAnimationMetadata {
                         is_dealer_card: true,
                         card_repr: card.repr(),
                         should_flip: true,
-                    }
+                    },
                 ));
             }
 
@@ -479,22 +504,20 @@ impl BlackjackGui {
             player_cards_pos.x - 32.0,
             player_cards_pos.y - 16.0,
             SCORE_FONT_SIZE,
-            BLACK
+            BLACK,
         );
     }
 
     pub fn draw_dealer_score(&self) {
         let dealer_cards_pos = dealer_cards_pos();
         let text = format!("Score: {}", self.dealer_hand.value());
-        let text_size = measure_text(
-            &text, None, SCORE_FONT_SIZE as u16, 1.0
-        );
+        let text_size = measure_text(&text, None, SCORE_FONT_SIZE as u16, 1.0);
         draw_text(
             &text,
             dealer_cards_pos.x - 32.0,
-            dealer_cards_pos.y + text_size.height  + CARD_H + 16.0,
+            dealer_cards_pos.y + text_size.height + CARD_H + 16.0,
             SCORE_FONT_SIZE,
-            BLACK
+            BLACK,
         );
     }
 
@@ -509,7 +532,7 @@ impl BlackjackGui {
     }
 
     pub fn handle_message_box(&mut self) {
-         if let Some(message_box) = &self.message_box {
+        if let Some(message_box) = &self.message_box {
             let message_box_event = message_box.draw();
             if message_box_event.button_event.clicked {
                 self.reset();
