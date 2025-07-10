@@ -1,8 +1,9 @@
 use macroquad::prelude::*;
-use crate::button::{Button, ButtonEvent, ButtonConfig};
+use crate::button::{Button, ButtonEvent, ButtonConfig, measure_button};
 
 const MODAL_HEIGHT: f32 = 350.0;
 const MODAL_WIDTH: f32 = 500.0;
+const MODAL_PADDING: f32 = 32.0;
 
 const MESSAGE_TEXT_SIZE: f32 = 48.0;
 
@@ -25,16 +26,19 @@ impl MessageBox {
             MODAL_HEIGHT,
         );
         
+        let button_label = String::from(message);
+        let button_config = ButtonConfig {
+            ..Default::default()
+        };
+        let button_dims = measure_button(&button_label, &button_config);
         Self {
-            message: String::from(message),
+            message: button_label,
             rect,
             button: Button::new(
                 button_text,
-                rect.x + rect.w / 2.0,
-                rect.y  + rect.h / 2.0,
-                ButtonConfig {
-                    ..Default::default()
-                }
+                rect.x + rect.w / 2.0 - button_dims.0 / 2.0,
+                rect.y + MODAL_HEIGHT - button_dims.1 - MODAL_PADDING,
+                button_config
             )
         }
     }
@@ -60,7 +64,7 @@ impl MessageBox {
         draw_text(
             &self.message,
             self.rect.x + self.rect.w / 2.0 - text_size.width / 2.0,
-            self.rect.y + 32.0 + text_size.height,
+            self.rect.y + MODAL_PADDING + text_size.height,
             MESSAGE_TEXT_SIZE,
             WHITE
         );

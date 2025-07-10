@@ -27,6 +27,15 @@ impl Default for ButtonConfig {
     }
 }
 
+pub fn measure_button(label: &str, config: &ButtonConfig) -> (f32, f32) {
+    //! Returns a tuple of (width, height) in pixels of a button
+    let text_size = measure_text(label, None, BUTTON_FONT_SIZE, 1.0);
+    let width = text_size.width + (BUTTON_PADDING_X * 2.0);
+    let height = text_size.height + (BUTTON_PADDING_Y * 2.0);
+
+    (width, height)
+}
+
 pub struct Button {
     label: String,
     rect: Rect,
@@ -37,12 +46,13 @@ pub struct Button {
 impl Button {
     pub fn new(label: &str, x: f32, y: f32, config: ButtonConfig) -> Self {
         let text_size = measure_text(label, None, BUTTON_FONT_SIZE, 1.0);
+        let button_dims = measure_button(label, &config);
 
         let rect = Rect::new(
             x,
             y,
-            text_size.width + (BUTTON_PADDING_X * 2.0),
-            text_size.height + (BUTTON_PADDING_Y * 2.0),
+            button_dims.0,
+            button_dims.1,
         );
         Self {
             label: String::from(label),
