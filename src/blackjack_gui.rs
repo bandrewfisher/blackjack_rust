@@ -29,6 +29,16 @@ const CARD_GAP: f32 = CARD_W / 4.0; // How much space to put between each card
 
 const SCORE_FONT_SIZE: f32 = 32.0;
 
+// Chips
+const CHIP_WIDTH_PX: f32 = 46.0;
+const CHIP_HEIGHT_PX: f32 = 48.0;
+const CHIP_SCALE: f32 = 1.5;
+
+const CHIP_HEIGHT: f32 = CHIP_HEIGHT_PX * CHIP_SCALE;
+const CHIP_WIDTH: f32 = CHIP_WIDTH_PX * CHIP_SCALE;
+const CHIP_GAP: f32 = 48.0; 
+
+
 fn deck_pos() -> Vec2 {
     vec2(screen_width() - SCREEN_PADDING - DECK_W, SCREEN_PADDING)
 }
@@ -42,6 +52,18 @@ fn player_cards_pos() -> Vec2 {
 
 fn dealer_cards_pos() -> Vec2 {
     vec2((screen_width() / 2.0) - (CARD_W / 2.0), SCREEN_PADDING)
+}
+
+fn create_chip_sprite(texture: &Rc<Texture2D>, row: usize, col: usize, position: Vec2) -> SharedSprite {
+    Rc::new(RefCell::new(Sprite::new(
+        Rc::clone(&texture),
+        col,
+        row,
+        CHIP_WIDTH_PX,
+        CHIP_HEIGHT_PX,
+        position,
+        1.5
+    )))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +93,13 @@ pub struct BlackjackGui {
     // Maps a card repr like "AH" to a sprite template for that card
     card_sprite_map: HashMap<String, SharedSprite>,
 
+    // Chip sprites
+    chip_10: SharedSprite,
+    chip_25: SharedSprite,
+    // chip_50: SharedSprite,
+    chip_100: SharedSprite,
+    chip_500: SharedSprite,
+
     // Queue for deal animations
     deal_animations: AnimationQueue<CardAnimationMetadata>,
 
@@ -82,6 +111,7 @@ pub struct BlackjackGui {
     // Textures
     deck_texture: Rc<Texture2D>,
     cards_texture: Rc<Texture2D>,
+    chips_texture: Rc<Texture2D>,
 
     // Sounds
     card_flip_sound: Sound,
@@ -145,6 +175,43 @@ impl BlackjackGui {
             }
         }
 
+        // Load chips texture
+        let chips_texture = Rc::new(load_texture("assets/cards/chips.png").await.unwrap());
+        chips_texture.set_filter(FilterMode::Nearest);
+
+        let chip_500 = create_chip_sprite(
+            &chips_texture,
+            3, 0,
+            vec2(SCREEN_PADDING, screen_height() - SCREEN_PADDING - CHIP_HEIGHT)
+        );
+        let corner_chip_pos = chip_500.borrow().get_pos();
+
+        let chip_100 = create_chip_sprite(
+            &chips_texture,
+            0, 4,
+            vec2(
+                corner_chip_pos.x + CHIP_GAP * 2.0 + CHIP_WIDTH,
+                corner_chip_pos.y
+            )
+        );
+        let chip_10 = create_chip_sprite(
+            &chips_texture,
+            1, 0,
+            vec2(
+                corner_chip_pos.x,
+                corner_chip_pos.y - CHIP_GAP * 2.0 - CHIP_HEIGHT * 2.0
+            )
+        );
+        let chip_25 = create_chip_sprite(
+            &chips_texture,
+            0, 0, 
+            vec2(
+                corner_chip_pos.x + CHIP_GAP + CHIP_WIDTH,
+                corner_chip_pos.y - CHIP_GAP - CHIP_HEIGHT 
+            )
+        );
+        
+        
         // Load SFX
         let card_flip_sound = load_sound("assets/sfx/flipcard.wav").await.unwrap();
 
@@ -180,6 +247,7 @@ impl BlackjackGui {
             state: GameState::NewGame,
             deck_texture,
             cards_texture,
+            chips_texture,
             card_flip_sound,
             hit_button,
             stand_button,
@@ -187,6 +255,11 @@ impl BlackjackGui {
             dealer_hand: Hand::new(),
             message_box: None,
             dealer_down_card: None,
+
+            chip_10,
+            chip_25,
+            chip_100,
+            chip_500
         }
     }
 
@@ -336,7 +409,7 @@ impl BlackjackGui {
 
                     if dealer_hand_value > 21 {
                         self.message_box = Some(MessageBox::new(
-                            "Dealer busted, you win!",
+                            "You win!",
                             score_messages,
                             "Play again",
                         ));
@@ -540,6 +613,13 @@ impl BlackjackGui {
         }
     }
 
+    pub fn render_chip_sprites(&self) {
+        self.chip_10.borrow().draw();
+        self.chip_25.borrow().draw();
+        self.chip_100.borrow().draw();
+        self.chip_500.borrow().draw();
+    }
+
     pub async fn run(&mut self) {
         // Main loop
         loop {
@@ -561,11 +641,15 @@ impl BlackjackGui {
             self.draw_player_score();
             self.draw_dealer_score();
 
-            // Render sprites
+            // Render card sprites
             self.deck_sprite.borrow().draw();
             for sprite in &self.card_sprites {
                 sprite.borrow().draw();
             }
+
+            // Render chip sprites
+            // self.chip_10.borrow().draw();
+            self.render_chip_sprites();
 
             // Render message box
             self.handle_message_box();
