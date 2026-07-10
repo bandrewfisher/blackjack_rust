@@ -301,3 +301,82 @@ impl Blackjack {
         self.set_state(GameState::DealerTurn);
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BetResult {
+    Win,       // regular win, pays 1:1
+    Blackjack, // natural two-card 21, pays 3:2
+    Push,      // tie, bet returned
+    Lose,      // loss or bust, bet forfeited
+}
+
+/*
+Settle a round. `bankroll` is the money on hand AFTER the wager has already
+been moved into the pot, `bet` is that wager. Returns the new bankroll and the
+net change from the player's perspective (positive = profit, negative = loss).
+
+Blackjack pays 3:2 but the bonus is floored to whole $5 chips so every bankroll
+stays a multiple of the chip unit - no un-bettable leftover can strand a player.
+*/
+pub fn settle_bet(bankroll: u32, bet: u32, result: BetResult) -> (u32, i64) {
+    match result {
+        BetResult::Win => (bankroll + bet * 2, bet as i64),
+        BetResult::Blackjack => {
+            let bonus = (bet * 3 / 2 / 5) * 5;
+            (bankroll + bet + bonus, bonus as i64)
+        }
+        BetResult::Push => (bankroll + bet, 0),
+        BetResult::Lose => (bankroll, -(bet as i64)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn win_returns_stake_plus_equal_winnings() {
+        // Started $100, bet $40 (hand now $60), then won 1:1.
+        assert_eq!(settle_bet(60, 40, BetResult::Win), (140, 40));
+    }
+
+    #[test]
+    fn blackjack_pays_three_to_two_floored_to_five() {
+        // $40 natural -> +$60 profit (3:2 exactly).
+        assert_eq!(settle_bet(60, 40, BetResult::Blackjack), (160, 60));
+        // $5 natural -> $7.50 floored to a $5 chip.
+        assert_eq!(settle_bet(95, 5, BetResult::Blackjack), (105, 5));
+    }
+
+    #[test]
+    fn push_returns_the_bet_unchanged() {
+        assert_eq!(settle_bet(60, 40, BetResult::Push), (100, 0));
+    }
+
+    #[test]
+    fn loss_keeps_bankroll_flat_and_reports_the_loss() {
+        assert_eq!(settle_bet(60, 40, BetResult::Lose), (60, -40));
+    }
+
+    #[test]
+    fn bankroll_stays_a_multiple_of_five() {
+        for &bet in &[5u32, 25, 40, 100] {
+            for result in [
+                BetResult::Win,
+                BetResult::Blackjack,
+                BetResult::Push,
+                BetResult::Lose,
+            ] {
+                let (bankroll, _) = settle_bet(500, bet, result);
+                assert_eq!(
+                    bankroll % 5,
+                    0,
+                    "bankroll {} not a $5 multiple (bet {}, {:?})",
+                    bankroll,
+                    bet,
+                    result
+                );
+            }
+        }
+    }
+}

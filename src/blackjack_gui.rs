@@ -1,6 +1,6 @@
 use crate::animation::{Animation, AnimationQueue, AnimationState};
-use crate::blackjack::{Blackjack, Card, Hand};
-use crate::button::{Button, ButtonConfig, ButtonEvent};
+use crate::blackjack::{BetResult, Blackjack, Card, Hand, settle_bet};
+use crate::button::{Button, ButtonConfig};
 use crate::message_box::MessageBox;
 use crate::sheet_sprite::{SharedSprite, Sprite};
 use std::cell::RefCell;
@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use macroquad::audio::{PlaySoundParams, Sound, load_sound, play_sound};
 use macroquad::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 const SCREEN_PADDING: f32 = 25.0;
 const SPRITE_SCALE: f32 = 2.0;
@@ -28,16 +28,27 @@ const CARD_H: f32 = CARD_H_PX * SPRITE_SCALE;
 const CARD_GAP: f32 = CARD_W / 4.0; // How much space to put between each card
 
 const SCORE_FONT_SIZE: f32 = 32.0;
+const READOUT_FONT_SIZE: f32 = 32.0;
 
-// Chips
+// Chips (source sprite is 46x48 in the sheet)
 const CHIP_WIDTH_PX: f32 = 46.0;
 const CHIP_HEIGHT_PX: f32 = 48.0;
-const CHIP_SCALE: f32 = 1.5;
 
-const CHIP_HEIGHT: f32 = CHIP_HEIGHT_PX * CHIP_SCALE;
-const CHIP_WIDTH: f32 = CHIP_WIDTH_PX * CHIP_SCALE;
-const CHIP_GAP: f32 = 48.0; 
+// Chip heap rendering
+const HEAP_CHIP_SCALE: f32 = 1.0;
+const HEAP_CHIP_W: f32 = CHIP_WIDTH_PX * HEAP_CHIP_SCALE;
+const HEAP_CHIP_H: f32 = CHIP_HEIGHT_PX * HEAP_CHIP_SCALE;
+const CHIP_UNIT: u32 = 5; // one drawn chip is worth $5
+const HEAP_MAX_STACK: usize = 5; // chips tall per stack before starting a new one
+const HEAP_MAX_STACKS: usize = 6; // stacks wide before the pile visually maxes out
 
+// Money
+const STARTING_BANKROLL: u32 = 100;
+
+// Floating money-change text
+const FLOAT_TTL: f32 = 1.4;
+const FLOAT_RISE: f32 = 55.0;
+const FLOAT_FONT_SIZE: f32 = 44.0;
 
 fn deck_pos() -> Vec2 {
     vec2(screen_width() - SCREEN_PADDING - DECK_W, SCREEN_PADDING)
@@ -54,20 +65,53 @@ fn dealer_cards_pos() -> Vec2 {
     vec2((screen_width() / 2.0) - (CARD_W / 2.0), SCREEN_PADDING)
 }
 
-fn create_chip_sprite(texture: &Rc<Texture2D>, row: usize, col: usize, position: Vec2) -> SharedSprite {
-    Rc::new(RefCell::new(Sprite::new(
-        Rc::clone(&texture),
-        col,
-        row,
-        CHIP_WIDTH_PX,
-        CHIP_HEIGHT_PX,
-        position,
-        1.5
-    )))
+fn hand_heap_base() -> Vec2 {
+    // Bottom-left: the chips in your hand
+    vec2(SCREEN_PADDING + 110.0, screen_height() - SCREEN_PADDING - 10.0)
+}
+
+fn hand_readout_pos() -> Vec2 {
+    vec2(SCREEN_PADDING, screen_height() - SCREEN_PADDING - 130.0)
+}
+
+fn pot_heap_base() -> Vec2 {
+    // Center of the table: the pot
+    vec2(screen_width() / 2.0, screen_height() / 2.0 + 40.0)
+}
+
+// A short-lived "+$40" / "-$25" that rises off the bankroll and fades.
+struct FloatingText {
+    text: String,
+    pos: Vec2,
+    color: Color,
+    elapsed: f32,
+}
+
+impl FloatingText {
+    fn update_and_draw(&mut self, dt: f32) -> bool {
+        self.elapsed += dt;
+        self.pos.y -= FLOAT_RISE * dt;
+
+        let alpha = (1.0 - self.elapsed / FLOAT_TTL).clamp(0.0, 1.0);
+        let mut color = self.color;
+        color.a = alpha;
+
+        let size = measure_text(&self.text, None, FLOAT_FONT_SIZE as u16, 1.0);
+        draw_text(
+            &self.text,
+            self.pos.x - size.width / 2.0,
+            self.pos.y,
+            FLOAT_FONT_SIZE,
+            color,
+        );
+
+        self.elapsed < FLOAT_TTL
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum GameState {
+    Betting,
     NewGame,
     DealingCard,
     WaitingPlayerInput,
@@ -93,12 +137,15 @@ pub struct BlackjackGui {
     // Maps a card repr like "AH" to a sprite template for that card
     card_sprite_map: HashMap<String, SharedSprite>,
 
-    // Chip sprites
-    chip_10: SharedSprite,
-    chip_25: SharedSprite,
-    // chip_50: SharedSprite,
-    chip_100: SharedSprite,
-    chip_500: SharedSprite,
+    // Money
+    bankroll: u32,
+    bet: u32,
+    last_net: i64,
+    out_of_chips: bool,
+    money_float: Option<FloatingText>,
+
+    // A single red chip, repositioned + redrawn to build heaps
+    red_chip: SharedSprite,
 
     // Queue for deal animations
     deal_animations: AnimationQueue<CardAnimationMetadata>,
@@ -116,9 +163,15 @@ pub struct BlackjackGui {
     // Sounds
     card_flip_sound: Sound,
 
-    // Buttons
+    // Buttons - play phase
     hit_button: Button,
     stand_button: Button,
+
+    // Buttons - betting phase
+    plus5_button: Button,
+    plus25_button: Button,
+    clear_bet_button: Button,
+    deal_button: Button,
 
     // Hands
     player_hand: Hand,
@@ -130,14 +183,14 @@ pub struct BlackjackGui {
 
 impl BlackjackGui {
     pub async fn new() -> Self {
-        let mut card_sprites: Vec<SharedSprite> = Vec::new();
+        let card_sprites: Vec<SharedSprite> = Vec::new();
 
         // Load deck texture and sprite
         let deck_texture = Rc::new(load_texture("assets/cards/decks_fixed.png").await.unwrap());
         deck_texture.set_filter(FilterMode::Nearest);
 
         let deck_pos = deck_pos();
-        let mut deck_sprite = Rc::new(RefCell::new(Sprite::new(
+        let deck_sprite = Rc::new(RefCell::new(Sprite::new(
             Rc::clone(&deck_texture),
             4,
             0,
@@ -175,65 +228,82 @@ impl BlackjackGui {
             }
         }
 
-        // Load chips texture
+        // Load chips texture and the single red chip used to build heaps
         let chips_texture = Rc::new(load_texture("assets/cards/chips.png").await.unwrap());
         chips_texture.set_filter(FilterMode::Nearest);
+        let red_chip = Rc::new(RefCell::new(Sprite::new(
+            Rc::clone(&chips_texture),
+            0,
+            0,
+            CHIP_WIDTH_PX,
+            CHIP_HEIGHT_PX,
+            vec2(0.0, 0.0),
+            HEAP_CHIP_SCALE,
+        )));
 
-        let chip_500 = create_chip_sprite(
-            &chips_texture,
-            3, 0,
-            vec2(SCREEN_PADDING, screen_height() - SCREEN_PADDING - CHIP_HEIGHT)
-        );
-        let corner_chip_pos = chip_500.borrow().get_pos();
-
-        let chip_100 = create_chip_sprite(
-            &chips_texture,
-            0, 4,
-            vec2(
-                corner_chip_pos.x + CHIP_GAP * 2.0 + CHIP_WIDTH,
-                corner_chip_pos.y
-            )
-        );
-        let chip_10 = create_chip_sprite(
-            &chips_texture,
-            1, 0,
-            vec2(
-                corner_chip_pos.x,
-                corner_chip_pos.y - CHIP_GAP * 2.0 - CHIP_HEIGHT * 2.0
-            )
-        );
-        let chip_25 = create_chip_sprite(
-            &chips_texture,
-            0, 0, 
-            vec2(
-                corner_chip_pos.x + CHIP_GAP + CHIP_WIDTH,
-                corner_chip_pos.y - CHIP_GAP - CHIP_HEIGHT 
-            )
-        );
-        
-        
         // Load SFX
         let card_flip_sound = load_sound("assets/sfx/flipcard.wav").await.unwrap();
 
-        // Create buttons
-        let hit_btn_pos = vec2(SCREEN_PADDING + 50.0, deck_pos.y + 50.0);
+        // Play-phase buttons (top-left)
+        let btn_x = SCREEN_PADDING + 50.0;
+        let btn_y = deck_pos.y + 50.0;
         let hit_button = Button::new(
             "Hit",
-            hit_btn_pos.x,
-            hit_btn_pos.y,
+            btn_x,
+            btn_y,
             ButtonConfig {
                 color: GREEN,
                 ..Default::default()
             },
         );
-
         let stand_button = Button::new(
             "Stand",
-            hit_btn_pos.x,
-            hit_btn_pos.y + hit_button.height() + 25.0,
+            btn_x,
+            btn_y + hit_button.height() + 25.0,
             ButtonConfig {
                 color: RED,
                 text_color: WHITE,
+                ..Default::default()
+            },
+        );
+
+        // Betting-phase buttons (same corner, shown only while betting)
+        let plus5_button = Button::new(
+            "+$5",
+            btn_x,
+            btn_y,
+            ButtonConfig {
+                color: LIGHTGRAY,
+                ..Default::default()
+            },
+        );
+        let bh = plus5_button.height();
+        let gap = 20.0;
+        let plus25_button = Button::new(
+            "+$25",
+            btn_x,
+            btn_y + (bh + gap),
+            ButtonConfig {
+                color: LIGHTGRAY,
+                ..Default::default()
+            },
+        );
+        let clear_bet_button = Button::new(
+            "Clear Bet",
+            btn_x,
+            btn_y + 2.0 * (bh + gap),
+            ButtonConfig {
+                color: RED,
+                text_color: WHITE,
+                ..Default::default()
+            },
+        );
+        let deal_button = Button::new(
+            "Deal",
+            btn_x,
+            btn_y + 3.0 * (bh + gap),
+            ButtonConfig {
+                color: GREEN,
                 ..Default::default()
             },
         );
@@ -244,22 +314,28 @@ impl BlackjackGui {
             deal_animations: AnimationQueue::new(),
             card_sprites,
             deck_sprite,
-            state: GameState::NewGame,
+            state: GameState::Betting,
             deck_texture,
             cards_texture,
             chips_texture,
             card_flip_sound,
             hit_button,
             stand_button,
+            plus5_button,
+            plus25_button,
+            clear_bet_button,
+            deal_button,
             player_hand: Hand::new(),
             dealer_hand: Hand::new(),
             message_box: None,
             dealer_down_card: None,
 
-            chip_10,
-            chip_25,
-            chip_100,
-            chip_500
+            bankroll: STARTING_BANKROLL,
+            bet: 0,
+            last_net: 0,
+            out_of_chips: false,
+            money_float: None,
+            red_chip,
         }
     }
 
@@ -282,7 +358,7 @@ impl BlackjackGui {
     fn create_card_sprite(&self, card_repr: &str, position: Vec2) -> Option<SharedSprite> {
         if let Some(card_sprite_ref) = self.card_sprite_map.get(card_repr) {
             let card_sprite = card_sprite_ref.borrow();
-            let mut new_sprite = Sprite::new(
+            let new_sprite = Sprite::new(
                 Rc::clone(&self.cards_texture),
                 card_sprite.col(),
                 card_sprite.row(),
@@ -310,8 +386,61 @@ impl BlackjackGui {
         score_messages
     }
 
+    fn payout_message(&self) -> String {
+        if self.last_net > 0 {
+            format!("You won ${}!", self.last_net)
+        } else if self.last_net < 0 {
+            format!("You lost ${}", -self.last_net)
+        } else {
+            String::from("Push - bet returned")
+        }
+    }
+
+    // Move the wager into the bankroll per the outcome and spawn the money float.
+    fn resolve_bet(&mut self, result: BetResult) {
+        let (new_bankroll, net) = settle_bet(self.bankroll, self.bet, result);
+        self.bankroll = new_bankroll;
+        self.last_net = net;
+
+        if net != 0 {
+            let base = hand_readout_pos();
+            let (text, color) = if net > 0 {
+                (format!("+${}", net), GREEN)
+            } else {
+                (format!("-${}", -net), RED)
+            };
+            self.money_float = Some(FloatingText {
+                text,
+                pos: vec2(base.x + 90.0, base.y - 20.0),
+                color,
+                elapsed: 0.0,
+            });
+        }
+
+        self.bet = 0;
+    }
+
+    // Build a modal from a title plus the score lines and the payout line.
+    fn show_outcome(&mut self, title: &str) {
+        let mut messages = self.get_score_messages();
+        messages.push(self.payout_message());
+        self.message_box = Some(MessageBox::new(title, messages, "Play again"));
+    }
+
     fn handle_state(&mut self) {
         match self.state {
+            GameState::Betting => {
+                // Nothing left to bet with and no wager down - offer a restart.
+                if self.bankroll < CHIP_UNIT && self.bet == 0 && self.message_box.is_none() {
+                    self.message_box = Some(MessageBox::new(
+                        "You're out of chips!",
+                        vec![String::from("Time to start over.")],
+                        "Start over",
+                    ));
+                    self.out_of_chips = true;
+                }
+            }
+
             GameState::NewGame => {
                 let player_cards = self.game.player_cards();
                 let dealer_cards = self.game.dealer_cards();
@@ -389,11 +518,8 @@ impl BlackjackGui {
 
             GameState::WaitingPlayerInput => {
                 if self.player_hand.value() > 21 {
-                    self.message_box = Some(MessageBox::new(
-                        "You busted!",
-                        self.get_score_messages(),
-                        "Play again",
-                    ));
+                    self.resolve_bet(BetResult::Lose);
+                    self.show_outcome("You busted!");
                     self.set_state(GameState::PlayerBusted);
                 }
             }
@@ -404,27 +530,29 @@ impl BlackjackGui {
                 if self.deal_animations.len() < 1 {
                     let dealer_hand_value = self.dealer_hand.value();
                     let player_hand_value = self.player_hand.value();
-
-                    let score_messages = self.get_score_messages();
+                    let is_natural =
+                        self.player_hand.cards().len() == 2 && player_hand_value == 21;
+                    let win_result = if is_natural {
+                        BetResult::Blackjack
+                    } else {
+                        BetResult::Win
+                    };
 
                     if dealer_hand_value > 21 {
-                        self.message_box = Some(MessageBox::new(
-                            "You win!",
-                            score_messages,
-                            "Play again",
-                        ));
+                        self.resolve_bet(win_result);
+                        self.show_outcome("You win!");
                         self.set_state(GameState::DealerBusted);
                     } else if dealer_hand_value > player_hand_value {
-                        self.message_box =
-                            Some(MessageBox::new("You lose!", score_messages, "Play again"));
+                        self.resolve_bet(BetResult::Lose);
+                        self.show_outcome("You lose!");
                         self.set_state(GameState::DealerWins);
                     } else if player_hand_value > dealer_hand_value {
-                        self.message_box =
-                            Some(MessageBox::new("You win!", score_messages, "Play again"));
+                        self.resolve_bet(win_result);
+                        self.show_outcome("You win!");
                         self.set_state(GameState::PlayerWins);
-                    } else if player_hand_value == dealer_hand_value {
-                        self.message_box =
-                            Some(MessageBox::new("It's a tie!", score_messages, "Play again"));
+                    } else {
+                        self.resolve_bet(BetResult::Push);
+                        self.show_outcome("It's a tie!");
                         self.set_state(GameState::Tie);
                     }
                 }
@@ -499,7 +627,31 @@ impl BlackjackGui {
         }
     }
 
-    fn handle_buttons(&mut self) {
+    fn add_to_bet(&mut self, amount: u32) {
+        if self.bankroll >= amount {
+            self.bankroll -= amount;
+            self.bet += amount;
+        }
+    }
+
+    fn handle_betting_buttons(&mut self) {
+        if self.plus5_button.draw().clicked {
+            self.add_to_bet(5);
+        }
+        if self.plus25_button.draw().clicked {
+            self.add_to_bet(25);
+        }
+        if self.clear_bet_button.draw().clicked {
+            self.bankroll += self.bet;
+            self.bet = 0;
+        }
+        // Can't deal a $0 hand
+        if self.deal_button.draw().clicked && self.bet > 0 {
+            self.set_state(GameState::NewGame);
+        }
+    }
+
+    fn handle_play_buttons(&mut self) {
         // Hit button
         let hit_event = self.hit_button.draw();
         if hit_event.clicked && self.state == GameState::WaitingPlayerInput {
@@ -526,8 +678,6 @@ impl BlackjackGui {
             }
         }
 
-        // For some reason on Mac, the click isn't always registered???
-        // Works fine on Linux + WASM. Moral of the story - FUCK APPLE OMFGGGGG
         // Stand button
         let stand_event = self.stand_button.draw();
         if stand_event.clicked && self.state == GameState::WaitingPlayerInput {
@@ -594,30 +744,97 @@ impl BlackjackGui {
         );
     }
 
+    // Draw a clustered heap of red chips worth `amount`, anchored at the
+    // bottom-center `base`. Stacks overlap and the middle is bumped up a chip
+    // so it reads as a real pile, not a bar chart.
+    fn draw_chip_heap(&self, amount: u32, base: Vec2) {
+        let total = ((amount / CHIP_UNIT) as usize).min(HEAP_MAX_STACK * HEAP_MAX_STACKS);
+        if total == 0 {
+            return;
+        }
+
+        let num_stacks = ((total + HEAP_MAX_STACK - 1) / HEAP_MAX_STACK).max(1);
+        let mut heights = vec![total / num_stacks; num_stacks];
+        let remainder = total % num_stacks;
+        // Give the leftover chips to the central stacks -> taller in the middle.
+        let start = (num_stacks - remainder) / 2;
+        for k in 0..remainder {
+            heights[start + k] += 1;
+        }
+
+        let stack_dx = HEAP_CHIP_W * 0.5;
+        let chip_dy = HEAP_CHIP_H * 0.22;
+        let total_w = stack_dx * (num_stacks as f32 - 1.0);
+        let start_x = base.x - (total_w + HEAP_CHIP_W) / 2.0;
+
+        for (i, &h) in heights.iter().enumerate() {
+            let sx = start_x + i as f32 * stack_dx;
+            for c in 0..h {
+                let y = base.y - HEAP_CHIP_H - c as f32 * chip_dy;
+                self.red_chip.borrow_mut().set_pos(vec2(sx, y));
+                self.red_chip.borrow().draw();
+            }
+        }
+    }
+
+    fn draw_money_readouts(&self) {
+        let hand_pos = hand_readout_pos();
+        draw_text(
+            &format!("On hand: ${}", self.bankroll),
+            hand_pos.x,
+            hand_pos.y,
+            READOUT_FONT_SIZE,
+            BLACK,
+        );
+
+        if self.state == GameState::Betting {
+            let hint = "Place your bet";
+            let size = measure_text(hint, None, READOUT_FONT_SIZE as u16, 1.0);
+            draw_text(
+                hint,
+                screen_width() / 2.0 - size.width / 2.0,
+                screen_height() / 2.0 - 130.0,
+                READOUT_FONT_SIZE,
+                BLACK,
+            );
+        }
+
+        if self.bet > 0 || self.state == GameState::Betting {
+            let text = format!("Bet: ${}", self.bet);
+            let size = measure_text(&text, None, READOUT_FONT_SIZE as u16, 1.0);
+            draw_text(
+                &text,
+                screen_width() / 2.0 - size.width / 2.0,
+                screen_height() / 2.0 - 80.0,
+                READOUT_FONT_SIZE,
+                BLACK,
+            );
+        }
+    }
+
     pub fn reset(&mut self) {
         self.game = Blackjack::new();
-        self.set_state(GameState::NewGame);
+        self.set_state(GameState::Betting);
         self.deal_animations = AnimationQueue::new();
         self.player_hand = Hand::new();
         self.dealer_hand = Hand::new();
         self.message_box = None;
         self.card_sprites = Vec::new();
+        self.dealer_down_card = None;
+        self.bet = 0;
     }
 
     pub fn handle_message_box(&mut self) {
         if let Some(message_box) = &self.message_box {
             let message_box_event = message_box.draw();
             if message_box_event.button_event.clicked {
+                if self.out_of_chips {
+                    self.bankroll = STARTING_BANKROLL;
+                    self.out_of_chips = false;
+                }
                 self.reset();
             }
         }
-    }
-
-    pub fn render_chip_sprites(&self) {
-        self.chip_10.borrow().draw();
-        self.chip_25.borrow().draw();
-        self.chip_100.borrow().draw();
-        self.chip_500.borrow().draw();
     }
 
     pub async fn run(&mut self) {
@@ -634,12 +851,18 @@ impl BlackjackGui {
             // Handle deal animations
             self.handle_deal_animations(delta_time);
 
-            // Draw buttons
-            self.handle_buttons();
+            // Draw the buttons for the current phase
+            if self.state == GameState::Betting {
+                self.handle_betting_buttons();
+            } else {
+                self.handle_play_buttons();
+            }
 
-            // Render score
-            self.draw_player_score();
-            self.draw_dealer_score();
+            // Render score (only once cards are on the table)
+            if self.state != GameState::Betting {
+                self.draw_player_score();
+                self.draw_dealer_score();
+            }
 
             // Render card sprites
             self.deck_sprite.borrow().draw();
@@ -647,11 +870,21 @@ impl BlackjackGui {
                 sprite.borrow().draw();
             }
 
-            // Render chip sprites
-            // self.chip_10.borrow().draw();
-            self.render_chip_sprites();
+            // Render chip heaps: your hand and the pot
+            self.draw_chip_heap(self.bankroll, hand_heap_base());
+            self.draw_chip_heap(self.bet, pot_heap_base());
 
-            // Render message box
+            // Money readouts + betting hint
+            self.draw_money_readouts();
+
+            // Floating money-change text
+            if let Some(float) = &mut self.money_float {
+                if !float.update_and_draw(delta_time) {
+                    self.money_float = None;
+                }
+            }
+
+            // Render message box on top
             self.handle_message_box();
 
             next_frame().await
