@@ -444,8 +444,8 @@ impl BlackjackGui {
     fn handle_state(&mut self) {
         match self.state {
             GameState::Betting => {
-                // Nothing left to bet with and no wager down - offer a restart.
-                if self.bankroll < CHIP_UNIT && self.bet == 0 && self.message_box.is_none() {
+                // Truly broke (any leftover is now bettable) - offer a restart.
+                if self.bankroll == 0 && self.bet == 0 && self.message_box.is_none() {
                     self.message_box = Some(MessageBox::new(
                         "You're out of chips!",
                         vec![String::from("Time to start over.")],
