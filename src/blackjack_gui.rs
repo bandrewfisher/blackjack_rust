@@ -377,6 +377,20 @@ impl BlackjackGui {
         self.card_sprites.retain(|s| !Rc::ptr_eq(s, sprite))
     }
 
+    // Flip the dealer's face-down card up and fold it into the dealer hand.
+    fn reveal_dealer_down_card(&mut self) {
+        if let Some(down_card) = self.dealer_down_card.take() {
+            let pos = down_card.borrow().get_pos();
+            self.remove_card_sprite(&down_card);
+
+            let repr = self.game.dealer_cards()[1].repr();
+            if let Some(card_sprite) = self.create_card_sprite(&repr, pos) {
+                self.card_sprites.push(card_sprite);
+                self.dealer_hand.add_card(Card::from_repr(&repr));
+            }
+        }
+    }
+
     fn get_score_messages(&self) -> Vec<String> {
         //! Returns the message to show in each modal, which shows the scores
         let mut score_messages = Vec::new();
@@ -512,7 +526,22 @@ impl BlackjackGui {
             GameState::DealingCard => {
                 // Done dealing the cards
                 if self.deal_animations.len() < 1 {
-                    self.set_state(GameState::WaitingPlayerInput);
+                    // A natural (two-card 21) settles immediately - no hit/stand.
+                    if self.player_hand.cards().len() == 2 && self.player_hand.value() == 21 {
+                        self.reveal_dealer_down_card();
+                        if self.dealer_hand.value() == 21 {
+                            // Dealer also has a natural - push.
+                            self.resolve_bet(BetResult::Push);
+                            self.show_outcome("Push!");
+                            self.set_state(GameState::Tie);
+                        } else {
+                            self.resolve_bet(BetResult::Blackjack);
+                            self.show_outcome("Blackjack!");
+                            self.set_state(GameState::PlayerWins);
+                        }
+                    } else {
+                        self.set_state(GameState::WaitingPlayerInput);
+                    }
                 }
             }
 
@@ -681,18 +710,8 @@ impl BlackjackGui {
         // Stand button
         let stand_event = self.stand_button.draw();
         if stand_event.clicked && self.state == GameState::WaitingPlayerInput {
-            // Remove the facedown dealer card
-            let down_card_sprite = Rc::clone(self.dealer_down_card.as_ref().unwrap());
-            let down_card_pos = down_card_sprite.borrow().get_pos();
-            self.remove_card_sprite(&down_card_sprite);
-
-            // Show the second dealer card
-            let dealer_down_card = self.game.dealer_cards()[1].repr();
-            if let Some(card_sprite) = self.create_card_sprite(&dealer_down_card, down_card_pos) {
-                self.card_sprites.push(card_sprite);
-                self.dealer_hand
-                    .add_card(Card::from_repr(&dealer_down_card));
-            }
+            // Flip the dealer's hole card up
+            self.reveal_dealer_down_card();
 
             // Add each new dealer card to the animation queue
             self.game.deal_dealer_cards();
