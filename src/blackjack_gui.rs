@@ -657,10 +657,10 @@ impl BlackjackGui {
     }
 
     fn add_to_bet(&mut self, amount: u32) {
-        if self.bankroll >= amount {
-            self.bankroll -= amount;
-            self.bet += amount;
-        }
+        // If you can't cover the full chip, wager whatever's left.
+        let take = amount.min(self.bankroll);
+        self.bankroll -= take;
+        self.bet += take;
     }
 
     fn handle_betting_buttons(&mut self) {
