@@ -767,10 +767,12 @@ impl BlackjackGui {
     // bottom-center `base`. Stacks overlap and the middle is bumped up a chip
     // so it reads as a real pile, not a bar chart.
     fn draw_chip_heap(&self, amount: u32, base: Vec2) {
-        let total = ((amount / CHIP_UNIT) as usize).min(HEAP_MAX_STACK * HEAP_MAX_STACKS);
-        if total == 0 {
+        if amount == 0 {
             return;
         }
+        // Any leftover smaller than a whole chip still shows a single chip.
+        let chips = (amount / CHIP_UNIT).max(1) as usize;
+        let total = chips.min(HEAP_MAX_STACK * HEAP_MAX_STACKS);
 
         let num_stacks = ((total + HEAP_MAX_STACK - 1) / HEAP_MAX_STACK).max(1);
         let mut heights = vec![total / num_stacks; num_stacks];
