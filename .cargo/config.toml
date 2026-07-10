@@ -1,0 +1,6 @@
+# Recent Rust toolchains link wasm with rust-lld, which errors on the
+# macroquad/miniquad runtime symbols (init_webgl, glBindTexture, audio_init, ...)
+# that the browser's mq_js_bundle.js provides at runtime. These flags let the
+# linker emit them as wasm imports instead of failing. Native builds are untouched.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--import-undefined", "-C", "link-arg=--allow-undefined"]

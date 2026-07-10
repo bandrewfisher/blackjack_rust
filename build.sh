@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 mkdir -p www
 cargo build --target wasm32-unknown-unknown
 cp index.html www/
