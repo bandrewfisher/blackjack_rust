@@ -315,14 +315,15 @@ Settle a round. `bankroll` is the money on hand AFTER the wager has already
 been moved into the pot, `bet` is that wager. Returns the new bankroll and the
 net change from the player's perspective (positive = profit, negative = loss).
 
-Blackjack pays 3:2 but the bonus is floored to whole $5 chips so every bankroll
-stays a multiple of the chip unit - no un-bettable leftover can strand a player.
+Blackjack pays 3:2 rounded down to the whole dollar (house-favour rounding, as
+on lower-limit tables). Any leftover smaller than the $5 minimum bet gets swept
+by the out-of-chips restart.
 */
 pub fn settle_bet(bankroll: u32, bet: u32, result: BetResult) -> (u32, i64) {
     match result {
         BetResult::Win => (bankroll + bet * 2, bet as i64),
         BetResult::Blackjack => {
-            let bonus = (bet * 3 / 2 / 5) * 5;
+            let bonus = bet * 3 / 2; // 3:2, integer division rounds down
             (bankroll + bet + bonus, bonus as i64)
         }
         BetResult::Push => (bankroll + bet, 0),
@@ -341,11 +342,13 @@ mod tests {
     }
 
     #[test]
-    fn blackjack_pays_three_to_two_floored_to_five() {
+    fn blackjack_pays_three_to_two_rounded_down() {
         // $40 natural -> +$60 profit (3:2 exactly).
         assert_eq!(settle_bet(60, 40, BetResult::Blackjack), (160, 60));
-        // $5 natural -> $7.50 floored to a $5 chip.
-        assert_eq!(settle_bet(95, 5, BetResult::Blackjack), (105, 5));
+        // $5 natural -> $7.50 rounded down to $7.
+        assert_eq!(settle_bet(95, 5, BetResult::Blackjack), (107, 7));
+        // $25 natural -> $37.50 rounded down to $37.
+        assert_eq!(settle_bet(75, 25, BetResult::Blackjack), (137, 37));
     }
 
     #[test]
@@ -359,7 +362,9 @@ mod tests {
     }
 
     #[test]
-    fn bankroll_stays_a_multiple_of_five() {
+    fn net_change_matches_the_bankroll_delta() {
+        // The reported net always equals the actual change in on-hand money,
+        // remembering the wager was removed before settling.
         for &bet in &[5u32, 25, 40, 100] {
             for result in [
                 BetResult::Win,
@@ -367,12 +372,14 @@ mod tests {
                 BetResult::Push,
                 BetResult::Lose,
             ] {
-                let (bankroll, _) = settle_bet(500, bet, result);
+                let before = 500;
+                let (after, net) = settle_bet(before, bet, result);
+                // before the round the player had `before + bet` on hand
                 assert_eq!(
-                    bankroll % 5,
-                    0,
-                    "bankroll {} not a $5 multiple (bet {}, {:?})",
-                    bankroll,
+                    after as i64 - (before as i64 + bet as i64),
+                    net,
+                    "net {} disagrees with delta (bet {}, {:?})",
+                    net,
                     bet,
                     result
                 );
