@@ -1,7 +1,7 @@
 # Blackjack
 
-A pixel-art blackjack game built in Rust with macroquad. Place your bets, hit or
-stand, and try to beat the dealer. Runs as a native desktop app or in the
+A pixel-art blackjack game built in Rust with macroquad. 
+Runs as a native desktop app or in the
 browser via WebAssembly.
 
 ## Running
