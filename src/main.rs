@@ -13,6 +13,8 @@ fn window_conf() -> Conf {
     Conf {
         window_title: "Blackjack".to_owned(),
         window_resizable: false,
+        window_width: 800,
+        window_height: 600,
         ..Default::default()
     }
 }

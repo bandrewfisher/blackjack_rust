@@ -5,23 +5,30 @@
     <title>Blackjack</title>
     <style>
         html,
-        body,
-        canvas {
-            margin: 0px;
-            padding: 0px;
-            width: 100%;
+        body {
+            margin: 0;
+            padding: 0;
             height: 100%;
+            background: #14121a;
+            /* Center the fixed-size game like the desktop window */
+            display: flex;
+            align-items: center;
+            justify-content: center;
             overflow: hidden;
-            position: absolute;
+        }
+
+        #glcanvas {
+            width: 800px;
+            height: 600px;
             background: black;
-            z-index: 0;
-            color: white;
+            /* Keep the pixel art crisp when the browser scales it */
+            image-rendering: pixelated;
         }
     </style>
 </head>
 
 <body>
-    <canvas id="glcanvas" tabindex='1'></canvas>
+    <canvas id="glcanvas" tabindex='1' width="800" height="600"></canvas>
     <!-- Minified and statically hosted version of https://github.com/not-fl3/macroquad/blob/master/js/mq_js_bundle.js -->
     <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
     <script>load("blackjack.wasm");</script> <!-- Your compiled wasm file -->
